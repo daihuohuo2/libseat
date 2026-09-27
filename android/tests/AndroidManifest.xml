@@ -1,5 +1,0 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="cn.libseat.mobile.tests">
-  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
-  <instrumentation android:name="cn.libseat.mobile.SmokeTest" android:targetPackage="cn.libseat.mobile" android:label="Libseat offline smoke tests" />
-  <application android:label="Libseat tests" />
-</manifest>

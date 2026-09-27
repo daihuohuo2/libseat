@@ -243,7 +243,7 @@ function maybeAutoRefresh(reason) {
 }
 
 async function apiOnce(pathname, body, token, useCrypto) {
-  // 仅测试用：设置 LIBSEAT_MOCK=<模块路径> 时，用替身接口响应，不发出真实请求
+  // Android 体验演示通过 LIBSEAT_MOCK 提供本地数据，不发出真实请求。
   if (process.env.LIBSEAT_MOCK) {
     return require(process.env.LIBSEAT_MOCK).respond(pathname, body || {});
   }

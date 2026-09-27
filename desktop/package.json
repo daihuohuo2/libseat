@@ -6,8 +6,7 @@
   "main": "main.js",
   "private": true,
   "scripts": {
-    "start": "electron .",
-    "smoke": "electron . --smoke"
+    "start": "electron ."
   },
   "devDependencies": {
     "electron": "^44.0.0"

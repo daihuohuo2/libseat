@@ -53,7 +53,7 @@ function focusWindow() {
 }
 
 function showBookingNotification(booking) {
-  if (HEADLESS || quitting) return;
+  if (quitting) return;
   if (win) win.flashFrame(true);
   const fallback = () => {
     if (quitting) return;
@@ -139,11 +139,9 @@ async function startServer() {
   throw new Error('后端启动超时');
 }
 
-const HEADLESS = !!process.env.LIBSEAT_SMOKE;   // 无头模式：离屏渲染 + 截图后退出
-
 function createWindow() {
   win = new BrowserWindow({
-    show: !HEADLESS,
+    show: true,
     width: 1180,
     height: 860,
     minWidth: 900,
@@ -159,8 +157,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js'),
-      offscreen: HEADLESS
+      preload: path.join(__dirname, 'preload.js')
     }
   });
   win.setMenuBarVisibility(false);
@@ -175,7 +172,7 @@ function createWindow() {
   win.on('closed', () => { win = null; });
   win.on('focus', () => { if (win) win.flashFrame(false); });
   win.on('close', event => {
-    if (!quitting && !HEADLESS && tray) { event.preventDefault(); win.hide(); }
+    if (!quitting && tray) { event.preventDefault(); win.hide(); }
   });
 }
 
@@ -289,35 +286,11 @@ if (!app.requestSingleInstanceLock()) {
 
     createWindow();
     createTray();
-    if (!HEADLESS) {
-      pollBooking();
-      notificationTimer = setInterval(pollBooking, 1000);
-    }
-
-    // 冒烟测试：截一张界面图后自动退出（用于自动化验证，离屏渲染，不需要显示器）
-    if (HEADLESS) {
-      win.webContents.once('did-finish-load', async () => {
-        console.log('[app] 页面已加载，等待数据渲染后截图...');
-        setTimeout(async () => {
-          try {
-            const img = await win.capturePage();
-            const out = path.join(ROOT, process.env.LIBSEAT_SMOKE);
-            require('fs').writeFileSync(out, img.toPNG());
-            console.log('[app] 冒烟截图已保存: ' + out + ' (' + img.toPNG().length + 'B)');
-          } catch (e) { console.error('[app] 截图失败', e); }
-          quitting = true;
-          app.quit();
-        }, 10000);
-      });
-      win.webContents.on('did-fail-load', (e, code, desc) => {
-        console.error('[app] 页面加载失败 ' + code + ' ' + desc);
-        quitting = true;
-        app.quit();
-      });
-    }
+    pollBooking();
+    notificationTimer = setInterval(pollBooking, 1000);
   });
 
-  app.on('window-all-closed', () => { if (!tray || quitting || HEADLESS) { quitting = true; app.quit(); } });
+  app.on('window-all-closed', () => { if (!tray || quitting) { quitting = true; app.quit(); } });
   app.on('before-quit', () => {
     quitting = true;
     clearInterval(notificationTimer);
