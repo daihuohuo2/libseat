@@ -1,0 +1,51 @@
+/* Applied only by the Electron preload bridge. The web layout stays separate. */
+.desktop-titlebar,.desktop-sidebar,.desktop-statusbar{display:none}
+.desktop-app{--desktop-bar:0px;--desktop-rail:174px}
+.desktop-app.custom-titlebar{--desktop-bar:38px}
+.desktop-app body{padding-top:var(--desktop-bar);padding-bottom:30px;background:#f5f3ee}
+.desktop-app .topbar,.desktop-app .app-footer{display:none}
+.custom-titlebar .desktop-titlebar{display:flex;position:fixed;z-index:30;left:0;top:0;width:100%;height:38px;align-items:center;gap:20px;padding:0 154px 0 20px;background:#f5f3ee;color:#57665b;font-size:12px;border-bottom:1px solid #e8e5dc;-webkit-app-region:drag;app-region:drag;user-select:none}
+.desktop-title-note{font-size:11px;color:#93998d}
+.desktop-app-logo{width:20px;height:20px;display:block;margin-right:-12px;border-radius:4px}
+.desktop-app .desktop-sidebar{display:flex;position:fixed;top:var(--desktop-bar);bottom:30px;left:0;width:var(--desktop-rail);background:#edeee6;border-right:1px solid #e3e5d9;flex-direction:column;padding:29px 14px 18px}
+.desktop-brand{padding:0 10px 32px}.desktop-brand strong{display:block;font:700 27px/1.5 var(--display);color:#2d5743;letter-spacing:1px}.desktop-brand>span{display:block;font-size:11px;color:#798375;margin-top:3px}
+.desktop-app .tabs{flex-direction:column;height:auto;padding:0;margin:0;border:0;gap:8px;flex-shrink:0}
+.desktop-app .tabs button{border:0;border-radius:7px;padding:13px 16px;font-size:14px;text-align:left;white-space:nowrap;color:#6b7569;background:transparent}
+.desktop-app .tabs button[aria-selected=true]{background:#dae5d6;color:#2f6148;font-weight:600}
+.desktop-app .tabs button:hover{background:#e2e8dc;color:#2f6148}
+.desktop-sidebar-note{font:12px/2 var(--display);white-space:pre-line;color:#8b9384;margin:auto 12px 28px;padding-top:28px}
+.desktop-app .account{display:flex;flex-direction:column;align-items:stretch;gap:14px;border-top:1px solid #dfe3d5;padding-top:17px}
+.desktop-app #btnAccount{display:flex;align-items:flex-start;flex-direction:column;text-align:left;font-size:12px;gap:7px;padding:8px 10px}
+.desktop-app .account .pill{display:block;margin:0;font-size:10px;max-width:100%;white-space:normal}
+.desktop-app .account time{display:block;border:0;padding:0 10px;white-space:normal;font-size:10px;line-height:1.8;color:#899180}
+.desktop-app #previewBadge{padding:12px 10px 0;color:#966021;font-size:10px}
+.desktop-app .app-shell{max-width:none;margin-left:var(--desktop-rail);padding:22px 22px 0}
+.desktop-app .hero{padding:0 3px 25px;align-items:flex-start}
+.desktop-app .hero h1{font-size:36px;line-height:1.4;letter-spacing:1px}
+.desktop-app .hero p{font-size:13px;letter-spacing:.5px;margin-top:7px}
+.desktop-app .hero .hero-note{display:none}
+.desktop-app .workspace{grid-template-columns:280px minmax(0,1fr);gap:14px;align-items:stretch}
+.desktop-app .surface{border:1px solid #e9e7df;border-radius:10px}
+.desktop-app .preferences{padding:20px 18px}
+.desktop-app h2{font-size:21px}.desktop-app .section-caption{font-size:11px}
+.desktop-app .selectors{grid-template-columns:47px minmax(0,1fr);margin:16px 0 14px;gap:10px 8px}
+.desktop-app .selectors label{font-size:12px}.desktop-app .selectors select{height:36px;font-size:12px;padding:0 7px}
+.desktop-app #btnAddArea{font-size:13px;padding:10px}
+.desktop-app .shortlist{margin-top:19px;padding-top:16px}.desktop-app .shortlist h2{font-size:20px}
+.desktop-app .chip{padding:7px 8px;margin-bottom:8px;gap:6px;font-size:12px}
+.desktop-app .chip .availability{font-size:11px}.desktop-app .chip .x{font-size:10px}
+.desktop-app .plan-picker{margin-top:17px}.desktop-app #activePlanPill{display:none}
+.desktop-app .primary-actions{padding-top:16px}.desktop-app .mode-control{font-size:11px}
+.desktop-app .primary-actions>button{margin-top:9px;font-size:14px}.desktop-app #planHint{font-size:11px;line-height:1.6}
+.desktop-app .map-panel{padding:20px 20px 0}.desktop-app .map-heading h2{font-size:24px}
+.desktop-app .legend{gap:10px;font-size:10px;margin-top:18px}.desktop-app .legend .sw{width:13px;height:13px}
+.desktop-app .mapwrap{height:420px;min-height:280px;margin:20px 0 14px}
+.desktop-app .map-footer{min-height:60px;gap:8px;font-size:10px}.desktop-app .map-footer>div{gap:6px;align-items:flex-start}
+.desktop-app .map-footer button{font-size:11px;white-space:nowrap}.desktop-app .map-footer .pill{font-size:10px}
+.desktop-app .row{grid-template-columns:repeat(2,minmax(0,1fr))}
+.desktop-app .secondary-panel{min-height:570px;padding:26px}.desktop-app .secondary-panel>.section-heading{align-items:flex-start;flex-wrap:wrap}
+.desktop-app .desktop-statusbar{display:flex;position:fixed;z-index:20;bottom:0;left:0;right:0;height:30px;align-items:center;justify-content:space-between;padding:0 18px;background:#f6f5ef;border-top:1px solid #e4e5da;font-size:10px;color:#7a8475}
+@media(min-width:1350px){.desktop-app{--desktop-rail:190px}.desktop-app .workspace{grid-template-columns:300px minmax(0,1fr)}.desktop-app .app-shell{padding:28px 28px 0}.desktop-app .hero{padding-bottom:28px}.desktop-app .hero h1{font-size:40px}}
+@media(max-height:900px){.desktop-app .app-shell{padding-top:15px}.desktop-app .hero{padding-bottom:17px}.desktop-app .hero h1{font-size:30px}.desktop-app .hero p{font-size:12px}.desktop-app .preferences{padding:15px}.desktop-app .selectors{margin:10px 0;gap:7px}.desktop-app .selectors select{height:32px}.desktop-app .shortlist{margin-top:12px;padding-top:12px}.desktop-app .chip{padding:4px 8px;margin-bottom:6px}.desktop-app .plan-picker{margin-top:8px}.desktop-app .primary-actions{padding-top:9px}.desktop-app .primary-actions>button{padding:8px 12px;margin-top:7px}.desktop-app #btnStart{height:40px}.desktop-app .mapwrap{height:330px}.desktop-app .desktop-brand{padding-bottom:20px}.desktop-app .desktop-sidebar{padding-top:20px}}
+@media(max-width:1000px){.desktop-app{--desktop-rail:150px}.desktop-app .app-shell{padding-left:16px;padding-right:16px}.desktop-app .workspace{grid-template-columns:260px minmax(0,1fr);gap:10px}.desktop-app .desktop-sidebar{padding-left:10px;padding-right:10px}.desktop-app .desktop-brand strong{font-size:25px}.desktop-app .map-panel{padding-left:15px;padding-right:15px}.desktop-app .map-footer{align-items:flex-start;padding:12px 0}.desktop-app .map-footer>div{flex-direction:column}.desktop-app .hero h1{font-size:32px}}
+

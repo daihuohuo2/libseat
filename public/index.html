@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图书馆座位预约助手</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#f5f3ee">
+<link rel="icon" href="/app-book-chair.ico" sizes="any">
+<link rel="apple-touch-icon" href="/app-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="/study-font.css">
+<link rel="stylesheet" href="/warm-study.css">
+<link rel="stylesheet" href="/desktop-study.css">
+<link rel="stylesheet" href="/booking-celebration.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><div class="university">中南大学图书馆<small>CENTRAL SOUTH UNIVERSITY LIBRARY</small></div><span class="brand-divider"></span><span class="brand-name">座位助手</span><span class="brand-note">专注的时光，更好的自己</span></div>
+  <div class="account"><button id="btnAccount" class="text-button" aria-controls="accountDialog">登录管理 <span id="tokenState" class="pill">检测中</span></button><time id="todayLabel"></time></div>
+</header>
+<main class="app-shell">
+  <section class="hero"><div><h1>今日，找个好位置</h1><p>选择区域，保存偏好，安心自习。</p></div><p class="hero-note">在图书馆，<br>与更好的自己相遇。</p></section>
+  <nav class="tabs" role="tablist" aria-label="主要功能"><button id="tab-booking" role="tab" aria-selected="true" aria-controls="bookingPanel" data-panel="bookingPanel">预约座位</button><button id="tab-plans" role="tab" aria-selected="false" aria-controls="plansPanel" data-panel="plansPanel" tabindex="-1">我的方案</button><button id="tab-logs" role="tab" aria-selected="false" aria-controls="logsPanel" data-panel="logsPanel" tabindex="-1">运行记录</button><span id="previewBadge" hidden>设计预览 · 模拟数据</span></nav>
+  <div id="bookingSummary" class="success-banner" hidden role="status"><strong>预约成功</strong><div id="bookingDetails" class="booking-details"></div><button id="btnBookingDetails" class="ghost">查看预约结果</button></div>
+  <div id="pendingBooking" class="warnbox" hidden style="margin-bottom:16px">
+    <strong>预约结果待确认 · 已暂停抢座</strong>
+    <div id="pendingDetails" class="booking-details"></div><p id="bookingMessage" role="status"></p>
+    <div class="btns" style="margin-top:10px"><button id="btnBookingCheck">重新核实</button><a href="https://libzw.csu.edu.cn/" target="_blank" rel="noopener" style="color:var(--accent)">打开官网查看我的预约</a></div>
+    <p class="hint">请先到官网核实对应座位和时段，再记录结果：</p>
+    <div class="btns" style="margin-top:8px"><button id="btnResolveSuccess" class="ghost">官网已确认成功</button><button id="btnResolveAbsent" class="ghost">官网已确认未成功</button></div>
+  </div>
+  <div id="storageError" class="warnbox" role="alert" hidden></div>
+  <details id="bookingHistory" style="margin:12px 0"><summary style="cursor:pointer">最近预约记录（重启后保留）</summary><div id="historyList" class="booking-details hint"></div><button id="btnHistoryRefresh" class="ghost" style="margin-top:8px">刷新记录</button></details>
+  <section id="bookingPanel" role="tabpanel" aria-labelledby="tab-booking" class="workspace">
+    <aside class="preferences surface">
+      <h2>预约偏好</h2><p class="section-caption">选择你想要的区域，加入抢选名单。</p>
+      <div class="selectors"><label for="selPremise">校区馆</label><select id="selPremise" aria-label="校区馆"><option>正在加载…</option></select><label for="selStorey">楼层</label><select id="selStorey" aria-label="楼层"><option>正在加载…</option></select><label for="selArea">区域</label><select id="selArea" aria-label="区域"><option>正在加载…</option></select></div>
+      <button id="btnAddArea" class="outline full-width">加入抢选名单</button>
+      <section class="shortlist"><div class="section-heading"><h2>抢选名单</h2><span id="prefState" class="pill">未加入区域</span></div><p class="section-caption">同时关注这些区域的空闲座位。</p><div id="grabList"></div></section>
+      <div class="plan-picker"><label class="label" for="planSelect">常用方案</label><select id="planSelect" aria-label="常用方案"></select><span id="activePlanPill" class="hint">未套用方案</span></div>
+      <div class="primary-actions"><label class="chk mode-control"><input type="checkbox" id="verifyOnly" checked><span>仅观察空位，不提交预约</span></label><button id="btnStart" class="full-width">开始抢座</button><button id="btnStop" class="danger full-width" disabled hidden>停止抢座</button><button id="btnPlanSave" class="outline full-width">保存方案</button><div id="planEditRow" style="display:none"><label for="planNameInput" class="label">方案名称</label><input type="text" id="planNameInput" placeholder="例如：下午五楼自习"><div class="btns"><button id="btnPlanOk">保存</button><button id="btnPlanCancel" class="ghost">取消</button></div></div><p id="planHint" class="hint" role="status" aria-live="polite">选好区域后，就可以开始关注空位。</p></div>
+    </aside>
+    <section class="map-panel surface" aria-label="实时座位地图">
+      <div class="map-heading"><div><h2 id="mapTitle">座位地图</h2><p id="mapSubtitle" class="section-caption">选择区域，查看实时座位状态</p></div><button id="btnMapRefresh" class="text-button">刷新地图</button></div>
+      <div id="mapLegend" class="legend"></div>
+      <div id="mapLoadHelp" class="warnbox" hidden role="status" style="margin-bottom:12px">
+        <p id="mapLoadError"></p><div class="btns" style="margin-top:8px"><button id="btnMapLogin">重新登录</button><button id="btnMapRetry" class="ghost">重新加载</button><a href="https://libzw.csu.edu.cn/" target="_blank" rel="noopener" style="color:var(--accent)">打开学校预约官网</a></div>
+      </div>
+      <div id="mapWrap" class="mapwrap"><div id="mapSeats"></div><p id="mapEmpty" class="map-empty">正在获取座位地图…</p></div>
+      <div class="map-footer"><div><span id="runState" class="pill">空闲</span><span id="mapSync" role="status">等待同步</span></div><button id="btnDetails" class="text-button" aria-expanded="false" aria-controls="detailsPanel">详细配置</button></div>
+      <div id="detailsPanel" hidden>
+        <div class="row"><div><label class="label" for="dateMode">预约日期</label><select id="dateMode"><option value="today">当日</option><option value="tomorrow">次日</option></select></div><div><label class="label" for="interval">轮询间隔（秒）</label><input type="number" id="interval" min="3" max="120" value="6"></div><div><label class="label" for="timeMode">查询方式</label><select id="timeMode"><option value="now">实时同步</option><option value="custom">固定时段</option></select></div><div><label class="label" for="windowShow">同步时刻</label><input type="text" id="windowShow" readonly value="—"></div><div><label class="label" for="startTime">开始时间</label><input type="time" id="startTime" value="08:00"></div><div><label class="label" for="endTime">结束时间</label><input type="time" id="endTime" value="12:00"></div></div>
+        <p class="hint" id="timeHint"></p><p id="liveHint" class="hint"></p><span id="dateShow" class="hint"></span>
+        <div class="section-heading area-heading"><h3>区域实时状态</h3><span id="areasHint" class="hint"></span></div><div id="areas"></div>
+        <button id="btnNotifications" class="outline">开启桌面通知</button><p id="notificationHint" class="hint" role="status">抢座成功后会弹窗显示预约详情。</p>
+        <p class="hint">预约成功后，请按图书馆预约系统的要求及时到馆签到。</p>
+      </div>
+    </section>
+  </section>
+  <section id="plansPanel" role="tabpanel" aria-labelledby="tab-plans" class="surface secondary-panel" hidden><div class="section-heading"><div><h2>我的方案</h2><p class="section-caption">把常去的区域存下来，下次直接使用。</p></div><div class="btns"><button id="btnPlanExport" class="outline">导出方案</button><button id="btnPlanImport" class="outline">导入方案</button><button id="btnPlanDel" class="ghost">删除当前方案</button></div></div><input type="file" id="planFileInput" accept=".json,application/json" hidden><div id="savedPlans"></div><p id="plansFeedback" class="hint" role="status"></p></section>
+  <section id="logsPanel" role="tabpanel" aria-labelledby="tab-logs" class="surface secondary-panel" hidden><h2>运行记录</h2><p class="section-caption">查看同步进度、预约结果和异常信息。</p><div id="logs" role="log" aria-label="运行日志"></div></section>
+  <footer class="app-footer"><span>中南大学图书馆 <span class="footer-divider">|</span> 座位助手</span><span>静下心来，专注此刻。</span></footer>
+</main>
+<dialog id="accountDialog" aria-labelledby="accountTitle"><div class="section-heading"><h2 id="accountTitle">登录管理</h2><button class="text-button" id="btnCloseAccount">关闭</button></div><p class="section-caption">登录状态由程序自动维护。</p><div class="btns"><button id="btnAuto">一键获取登录态</button><button id="btnVerify" class="outline">校验并刷新数据</button></div><label class="chk"><input type="checkbox" id="autoRefresh" checked><span>登录过期时自动续期</span></label><p id="autoHint" class="hint" role="status"></p></dialog>
+
+<dialog id="bookingDialog" aria-labelledby="bookingTitle">
+  <div class="booking-burst" aria-hidden="true"></div>
+  <div class="booking-card">
+  <span class="booking-success-icon" aria-hidden="true">✓</span>
+  <h2 id="bookingTitle">抢到座位了！</h2>
+  <p class="booking-seat-label">你的座位</p>
+  <strong id="bookingSeat" class="booking-seat"></strong>
+  <div id="bookingDialogDetails" class="booking-details"></div>
+  <p class="hint" style="margin:14px 0">请按预约系统要求及时到馆签到。</p>
+  <form method="dialog"><button autofocus>知道了</button></form>
+  </div>
+</dialog>
+<script src="/booking-notifications.js"></script>
+<script src="/booking-celebration.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let polling = null;
+
+function api(path, body, method){
+  return fetch(path, {
+    method: method || (body ? 'POST' : 'GET'),
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(['/api/tree', '/api/seats', '/api/areas', '/api/areas-of-storey'].includes(path) ? 30000 : 15000)
+  }).then(r => { if(!r.ok) throw new Error('服务响应异常（' + r.status + '）'); return r.json(); });
+}
+
+/* ---------- 预约成功提醒 ---------- */
+const nativeNotifications = !!(window.seatAssistant && window.seatAssistant.nativeNotifications);
+let notificationStorage;
+try { notificationStorage = window.localStorage; } catch(e) {}
+const claimedPageBookings = new Set();
+let currentPendingBooking = null;
+async function loadBookingHistory(){
+  try{
+    const r = await api('/api/bookings');
+    if(!r.ok) throw new Error(r.message || '读取失败');
+    const labels = { success: '预约成功', 'not-booked': '已确认未成功', rejected: '预约被拒绝' };
+    $('historyList').textContent = r.history.length ? r.history.map(b =>
+      (labels[b.outcome] || '待确认') + (b.confirmedBy === 'user' ? '（你在官网确认）' : '') + '\n'
+      + BookingNotifications.message(b)).join('\n\n') : '还没有预约记录。';
+  }catch(e){ $('historyList').textContent = '读取记录失败：' + e.message; }
+}
+async function resolveBooking(outcome){
+  const b = currentPendingBooking;
+  if(!b) return;
+  const result = outcome === 'success' ? '已经预约成功' : '没有预约成功';
+  if(!confirm('请确认你已在官网核实以下预约' + result + '：\n' + BookingNotifications.message(b))) return;
+  try{
+    const r = await api('/api/booking-resolve', { id: b.id, outcome: outcome, confirmed: true });
+    if(!r.ok) throw new Error(r.message);
+    await tick(); loadBookingHistory();
+  }catch(e){ $('bookingMessage').textContent = e.message; }
+}
+$('btnHistoryRefresh').onclick = loadBookingHistory;
+$('bookingHistory').ontoggle = () => { if($('bookingHistory').open) loadBookingHistory(); };
+$('btnBookingCheck').onclick = async () => {
+  try{ await api('/api/booking-check', {}); await tick(); }
+  catch(e){ $('bookingMessage').textContent = e.message; }
+};
+$('btnResolveSuccess').onclick = () => resolveBooking('success');
+$('btnResolveAbsent').onclick = () => resolveBooking('not-booked');
+function showBookingDialog(){
+  const dialog = $('bookingDialog');
+  if(!dialog.open) dialog.showModal();
+}
+function notificationHint(){
+  const granted = nativeNotifications || ('Notification' in window && Notification.permission === 'granted');
+  $('btnNotifications').hidden = granted;
+  $('notificationHint').textContent = granted
+    ? (nativeNotifications ? '桌面通知已启用。关闭窗口会缩到托盘；右键托盘图标可停止任务或退出。' : '桌面通知已启用；抢到座位后也会在页面弹窗，显示预约详情。')
+    : '抢到座位后会在页面弹窗。开启桌面通知后，切到其他窗口也能收到提醒。';
+}
+async function enableNotifications(){
+  if(nativeNotifications) return;
+  try{
+    if(!('Notification' in window)) throw new Error('当前浏览器不支持桌面通知，成功后仍会显示页面弹窗。');
+    const permission = await Notification.requestPermission();
+    notificationHint();
+    if(permission !== 'granted') $('notificationHint').textContent = '桌面通知未获允许，成功后仍会显示页面弹窗。可在浏览器的网站权限中允许通知。';
+  }catch(e){ $('notificationHint').textContent = e.message; }
+}
+const notifyBooking = BookingNotifications.createTracker(b => {
+  showBookingDialog();
+  BookingCelebration.play($('bookingDialog'));
+  if(!nativeNotifications && 'Notification' in window && Notification.permission === 'granted'){
+    try{
+      const notification = new Notification('抢到座位了！' + b.seat, {
+        body: BookingNotifications.message(b), icon: '/app.png', tag: b.id, requireInteraction: true
+      });
+      notification.onclick = () => { window.focus(); showBookingDialog(); notification.close(); };
+    }catch(e){ $('notificationHint').textContent = '桌面通知发送失败，预约结果已在页面显示。'; }
+  }
+}, notificationStorage);
+$('btnNotifications').onclick = enableNotifications;
+$('btnBookingDetails').onclick = showBookingDialog;
+notificationHint();
+
+/* ---------- 配置 ---------- */
+async function loadConfig(){
+  const r = await api('/api/config');
+  if(!r.ok) return;
+  const c = r.config;
+  $('dateMode').value = c.dateMode || 'today';
+  $('timeMode').value = c.timeMode || 'now';
+  $('interval').value = c.interval || 6;
+  $('startTime').value = c.startTime || '08:00';
+  $('endTime').value = c.endTime || '12:00';
+  $('verifyOnly').checked = c.verifyOnly !== false;
+  $('autoRefresh').checked = c.autoRefresh !== false;
+  cfgCache = c;
+  $('previewBadge').hidden = !c.designPreview;
+  plans = (c.seatPlans || []).slice();
+  activePlanId = c.activePlanId || '';
+  renderGrabList();
+  renderPlans();
+  syncTimeModeUI();
+  tokenExpTs = c.tokenExp || 0;
+  setTokenBadge(c.tokenExp ? 'ok' : (c.tokenMask ? 'ok' : 'none'));
+}
+
+function syncTimeModeUI(){
+  const now = $('timeMode').value === 'now';
+  $('startTime').disabled = now;
+  $('endTime').disabled = now;
+  $('timeHint').innerHTML = now
+    ? '实时同步：每轮都以<b>当前时刻</b>查询，得到的就是"现在"各座位的实时状态（空闲/使用中/已预约/临时离开）；抢座时自动按官网规则换算成可提交的预约窗口（现在向上取整到 15 分钟，最长 4 小时，不晚于 22:00）。'
+    : '固定时段：查询指定时间段。注意<b>已过去的时段</b>接口返回的是历史残留值（会虚高），请以"明细可约"为准。';
+}
+
+function collect(){
+  return {
+    dateMode: $('dateMode').value,
+    timeMode: $('timeMode').value,
+    interval: Number($('interval').value) || 6,
+    startTime: $('startTime').value,
+    endTime: $('endTime').value,
+    verifyOnly: $('verifyOnly').checked
+  };
+}
+
+/* ---------- 校验 ---------- */
+async function verify(){
+  const btn = $('btnVerify');
+  btn.disabled = true; btn.textContent = '校验中...';
+  try{
+    const r = await api('/api/verify', collect());
+    if(r.ok){
+      setTokenBadge('ok');
+      renderAreas(r.areas, r.date, r.stale, r.window);
+    }else{
+      setTokenBadge('bad');
+      $('areas').innerHTML = '<div class="hint" style="color:var(--err)">' + (r.message || '校验失败') + '</div>';
+    }
+  }catch(e){
+    $('areas').innerHTML = '<div class="hint" style="color:var(--err)">' + e.message + '</div>';
+  }
+  btn.disabled = false; btn.textContent = '校验并刷新数据';
+}
+
+function renderAreas(areas, date, stale, win, updatedAt){
+  if(date) $('dateShow').textContent = date;
+  if(win && win.start) $('windowShow').value = win.start + (win.end && win.end !== win.start ? '（快照）' : '');
+
+  const chosen = (cfgCache.preferAreas || []).map(String);
+  const all = areas || [];
+  const list = chosen.length ? all.filter(a => chosen.indexOf(String(a.id)) !== -1) : all;
+  const missing = chosen.filter(id => !all.some(a => String(a.id) === id));
+
+  if($('areasHint')){
+    $('areasHint').textContent = chosen.length
+      ? ('仅显示抢选名单里的 ' + chosen.length + ' 个区' + (missing.length ? '（' + missing.length + ' 个区暂无数据）' : ''))
+      : '名单为空，默认显示全部目标区';
+  }
+
+  const box = $('areas');
+  if(!list.length){
+    box.innerHTML = '<div class="hint">'
+      + (chosen.length ? '已选区域暂时拿不到数据，稍等自动刷新' : '未查询到目标区域') + '</div>';
+    return;
+  }
+  const warn = stale
+    ? '<div class="warnbox" style="margin-bottom:8px">⚠ 固定时段<b>已经过去</b>：上方"接口汇总"数字会明显虚高，请以<b>明细可约</b>为准，或改用实时模式。</div>'
+    : '';
+  box.innerHTML = warn + list.map(a => {
+    const n = (a.seatFree === null || a.seatFree === undefined) ? '?' : a.seatFree;
+    const cls = (a.seatFree !== null && a.seatFree !== undefined ? a.seatFree : a.free) > 0 ? 'free-yes' : 'free-no';
+    const mismatch = (a.seatFree !== null && a.seatFree !== undefined && a.seatFree !== a.free)
+      ? ' <span class="pill">口径不一致</span>' : '';
+    const dist = a.seatDist ? Object.keys(a.seatDist).map(k =>
+      '<span class="pill">' + escapeHtml(k) + ' ' + a.seatDist[k] + '</span>').join(' ') : '';
+    return '<div class="area-item"><div>'
+      + '<div class="nm">' + a.name + mismatch + '</div>'
+      + '<div style="margin-top:6px">' + dist + '</div>'
+      + '</div><span class="num ' + cls + '" style="text-align:right">'
+      + n + ' <span style="font-size:12px;color:var(--dim)">可约</span><br>'
+      + '<span style="font-size:12px;color:var(--dim)">总 ' + a.total + ' · 汇总 ' + a.free + '</span></span></div>';
+  }).join('');
+}
+
+/* ---------- 登录态徽标 ---------- */
+let tokenExpTs = 0;          // token 到期时间戳（秒），0 = 未知
+
+function setTokenBadge(kind){
+  const el = $('tokenState');
+  if(!el) return;
+  if(kind === 'none'){ el.textContent = '未获取'; el.className = 'pill'; return; }
+  if(kind === 'bad'){ el.textContent = '已失效'; el.className = 'pill'; return; }
+  if(!tokenExpTs){ el.textContent = '有效'; el.className = 'pill on'; return; }
+  const left = Math.round((tokenExpTs * 1000 - Date.now()) / 60000);
+  el.textContent = left > 0 ? ('有效 · 剩余 ' + left + ' 分钟') : '登录已过期';
+  el.className = left > 0 ? 'pill on' : 'pill';
+}
+
+/* ---------- 抢选名单（区域级） + 常用方案 ---------- */
+let treeData = null;
+let curPremise = '', curStorey = '', curArea = '', currentMapArea = '';
+let mapLoading = false, mapTick = 0;
+let mapInitPending = false, mapReady = false, mapRetryAt = 0, livePending = false;
+let cfgCache = {};
+let lastMapData = null;
+let plans = [];              // 常用方案 [{ id, name, areas, dateMode, interval }]
+let activePlanId = '';
+let planEditMode = '';
+
+function areaShort(a){
+  if(!a) return '';
+  return a.short || String(a.name || '').split('-').pop() || a.name || '';
+}
+
+function fillSelect(sel, items, valueKey, labelFn, keep){
+  sel.innerHTML = items.map(it =>
+    '<option value="' + escapeHtml(String(it[valueKey])) + '">' + escapeHtml(labelFn(it)) + '</option>').join('');
+  if(keep && items.some(it => String(it[valueKey]) === String(keep))) sel.value = String(keep);
+  sel.disabled = !items.length;
+}
+
+function selectMessage(id, message){
+  $(id).innerHTML = '<option value="">' + escapeHtml(message) + '</option>';
+  $(id).disabled = true;
+}
+function mapRequestError(result, fallback){
+  const error = new Error(result.message || fallback); error.code = result.code; return error;
+}
+function showMapError(error){
+  const login = error.code === 10001;
+  const message = login ? error.message : /Timeout|Abort|timeout|aborted|超时/i.test(error.name + ' ' + error.message)
+    ? '加载超时，暂时无法获取学校数据。请确认官网能正常打开后重试。'
+    : /fetch failed|network|网络错误|ECONN|ENOTFOUND/i.test(error.message)
+    ? '暂时无法连接学校预约系统。请确认下方官网能正常打开后重试。'
+    : '加载失败：' + error.message;
+  $('mapLoadHelp').hidden = false;
+  $('mapLoadError').textContent = message;
+  $('btnMapLogin').hidden = !login;
+  $('mapSync').textContent = login ? '需要重新登录' : '加载失败，可重试';
+  if(!lastMapData){ $('mapEmpty').hidden = false; $('mapEmpty').textContent = login ? '请先登录后查看座位地图' : '暂时无法加载座位地图'; }
+  else $('mapLoadError').textContent += ' 当前地图是上次成功获取的数据。';
+  if(login) setTokenBadge('bad');
+  mapRetryAt = Date.now() + 30000;
+}
+$('btnMapLogin').onclick = () => { if(!$('accountDialog').open) $('accountDialog').showModal(); autoLogin(); };
+$('btnMapRetry').onclick = () => mapReady ? loadSeatMap(curArea) : initMapBrowser(true);
+
+/** ① 校区馆 → ② 楼层 → ③ 区域 */
+async function loadTree(){
+  const r = await api('/api/tree', {});
+  if(!r.ok) throw mapRequestError(r, '获取楼层结构失败');
+  treeData = r.tree || [];
+  if(!treeData.length) throw new Error('学校接口未返回校区和楼层，请重新登录或稍后重试');
+
+  const cur = r.current || {};
+  curPremise = treeData.some(t => t.id === (curPremise || cur.premiseId)) ? (curPremise || cur.premiseId) : treeData[0].id;
+  fillSelect($('selPremise'), treeData, 'id', t => t.name, curPremise);
+
+  const pm = treeData.find(t => t.id === curPremise) || treeData[0];
+  curStorey = pm.storeys.some(x => x.id === (curStorey || cur.storeyId)) ? (curStorey || cur.storeyId) : ((pm.storeys[0] || {}).id || '');
+  fillSelect($('selStorey'), pm.storeys, 'id', x => x.name, curStorey);
+  return true;
+}
+
+async function loadAreasOfStorey(){
+  try{
+  const r = await api('/api/areas-of-storey', { premiseId: curPremise, storeyId: curStorey });
+  if(!r.ok) throw mapRequestError(r, '获取区域失败');
+  const areas = r.areas || [];
+  if(!areas.length) throw new Error('该楼层暂无可用区域，请切换楼层后重试');
+  if(!areas.some(a => a.id === String(curArea))) curArea = (areas[0] || {}).id || '';
+  fillSelect($('selArea'), areas, 'id',
+    a => a.short + '（可约 ' + a.free + '/' + a.total + '）' + (a.isTarget ? ' · 已在名单' : ''), curArea);
+  curArea = $('selArea').value || curArea;
+  return true;
+  }catch(e){
+    mapReady = false; curArea = '';
+    selectMessage('selArea', e.code === 10001 ? '请重新登录' : '区域加载失败');
+    showMapError(e);
+    return false;
+  }
+}
+
+/** 抢选名单渲染 */
+function renderGrabList(){
+  const ids = (cfgCache.preferAreas || []).map(String);
+  const box = $('grabList');
+  $('prefState').textContent = ids.length ? (ids.length + ' 个区') : '未加入区域';
+  $('prefState').className = 'pill' + (ids.length ? ' on' : '');
+  if(!ids.length){
+    box.innerHTML = '<span class="hint">还没有加入任何区域。选好区域后点「加入抢选名单」；'
+      + '不加时会在所有目标区（' + escapeHtml((cfgCache.areaIds || []).map(id => (cfgCache.areaNames || {})[id] || id).join('、')) + '）里找座位。</span>';
+    return;
+  }
+  box.innerHTML = ids.map(id => {
+    const a = (lastMapData && lastMapData.areas || []).find(x => String(x.id) === String(id));
+    const nm = a ? a.name : ((cfgCache.areaNames || {})[id] || id);
+    return '<span class="chip hit"><b>' + escapeHtml(nm.split('-').slice(-2).join(' ')) + '</b>'
+      + '<span class="availability">' + (a && a.free != null ? escapeHtml(String(a.free)) + ' 可约' : '') + '</span>'
+      + '<button type="button" class="x" aria-label="移除' + escapeHtml(nm) + '" data-id="' + escapeHtml(String(id)) + '">移除</button></span>';
+  }).join('');
+  box.querySelectorAll('.x').forEach(el => {
+    el.onclick = async () => {
+      await api('/api/config', { preferAreas: ids.filter(x => x !== el.dataset.id) });
+      await loadConfig();
+      await loadSeatMap(curArea);
+      $('planHint').textContent = '已从抢选名单移除该区域';
+      refreshLive(true);
+    };
+  });
+}
+
+/** 把当前正在看的区域加入抢选名单 */
+async function addCurrentAreaToList(){
+  // 以"下拉里当前选中的区域"为准（currentMapArea 可能是上一次加载的旧值）
+  const id = String($('selArea').value || curArea || currentMapArea || '');
+  if(!id) return;
+  const chosen = (cfgCache.preferAreas || []).map(String);
+  if(chosen.indexOf(id) !== -1){ $('planHint').textContent = '该区域已在抢选名单里'; return; }
+
+  const areaIds = (cfgCache.areaIds || []).map(String);
+  const patch = { preferAreas: chosen.concat([id]) };
+  if(areaIds.indexOf(id) === -1){
+    patch.areaIds = areaIds.concat([id]);
+    const a = (lastMapData && lastMapData.areas || []).find(x => String(x.id) === id);
+    if(a) patch.areaNames = Object.assign({}, cfgCache.areaNames || {}, { [id]: a.name });
+  }
+  await api('/api/config', patch);
+  await loadConfig();
+  if(patch.areaIds) await loadAreasOfStorey();
+  await loadSeatMap(curArea);
+  const a = (lastMapData && lastMapData.areas || []).find(x => String(x.id) === id);
+  $('planHint').textContent = '已把「' + ((a && areaShort(a)) || id) + '」加入抢选名单（程序只在这些区里找座位）';
+}
+
+/* ---------- 常用方案 ---------- */
+function renderPlans(){
+  const cur = plans.find(p => String(p.id) === String(activePlanId));
+  const pill = $('activePlanPill');
+  if(pill){
+    pill.textContent = cur ? ('当前方案：' + (cur.name || '未命名')) : '未套用方案';
+    pill.className = 'pill' + (cur ? ' on' : '');
+  }
+  const sel = $('planSelect');
+  if(!plans.length){
+    sel.innerHTML = '<option value="">暂无方案，可保存当前名单</option>';
+    return;
+  }
+  sel.innerHTML = plans.map(p =>
+    '<option value="' + escapeHtml(String(p.id)) + '"' + (String(p.id) === String(activePlanId) ? ' selected' : '') + '>'
+    + escapeHtml(p.name || '未命名') + '（' + ((p.areas || []).length) + ' 个区）</option>').join('');
+  if(!plans.some(p => String(p.id) === String(activePlanId))) sel.value = plans[0].id;
+}
+
+async function applyPlan(id){
+  if(!id) return;
+  const r = await api('/api/plan-activate', { id: id });
+  if(!r.ok){ $('planHint').innerHTML = '<span style="color:var(--err)">' + escapeHtml(r.message || '套用失败') + '</span>'; return; }
+  activePlanId = String(id);
+  await loadConfig();
+  const p = plans.find(x => String(x.id) === activePlanId);
+  await loadAreasOfStorey();
+  await loadSeatMap(curArea);
+  $('planHint').textContent = '已套用方案「' + ((p && p.name) || '未命名') + '」，抢选名单 '
+    + ((cfgCache.preferAreas || []).length) + ' 个区';
+}
+
+function showPlanEdit(){
+  planEditMode = 'new';
+  $('planEditRow').style.display = 'block';
+  const cur = plans.find(p => String(p.id) === String(activePlanId));
+  $('planNameInput').value = cur ? (cur.name || '') : '';
+  $('planNameInput').focus();
+}
+
+async function confirmPlanEdit(){
+  const name = $('planNameInput').value.trim();
+  if(!name){ $('planNameInput').focus(); return; }
+  $('planEditRow').style.display = 'none';
+
+  const areas = (cfgCache.preferAreas || []).map(String);
+  if(!areas.length){ $('planHint').innerHTML = '<span style="color:var(--warn)">抢选名单是空的，先加入至少一个区域再另存</span>'; return; }
+
+  const exist = plans.find(p => String(p.id) === String(activePlanId));
+  if(exist){
+    exist.name = name; exist.areas = areas;
+    exist.dateMode = cfgCache.dateMode; exist.interval = cfgCache.interval;
+  }else{
+    const id = 'p' + Date.now().toString(36);
+    plans.push({ id: id, name: name, areas: areas, dateMode: cfgCache.dateMode, interval: cfgCache.interval });
+    activePlanId = id;
+  }
+  await api('/api/config', { seatPlans: plans, activePlanId: activePlanId });
+  renderPlans();
+  $('planHint').textContent = '方案「' + name + '」已保存，下次可以直接使用。';
+  planEditMode = '';
+}
+
+async function deletePlan(){
+  const cur = plans.find(p => String(p.id) === String(activePlanId));
+  if(!cur){ $('planHint').textContent = '当前没有可删除的方案'; return; }
+  const r = await api('/api/plan-delete', { id: cur.id });
+  if(!r.ok){ $('planHint').innerHTML = '<span style="color:var(--err)">删除失败</span>'; return; }
+  plans = (r.config.seatPlans || []).slice();
+  activePlanId = r.config.activePlanId || '';
+  await loadConfig();
+  renderPlans();
+  await loadSeatMap(curArea);
+  $('planHint').textContent = '已删除方案「' + (cur.name || '未命名') + '」';
+}
+
+/* ---------- 方案导出 / 导入（JSON 文件） ---------- */
+function planExportPayload(){
+  return JSON.stringify({
+    app: 'libseat',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    plans: plans
+  }, null, 2);
+}
+
+function exportPlans(){
+  if(!plans.length){ $('planHint').innerHTML = '<span style="color:var(--warn)">还没有方案可导出，先把抢选名单保存为方案</span>'; return; }
+  const blob = new Blob([planExportPayload()], { type: 'application/json' });
+  const a = document.createElement('a');
+  const d = new Date();
+  const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  a.href = URL.createObjectURL(blob);
+  a.download = '座位助手方案-' + stamp + '.json';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  $('planHint').textContent = '已导出 ' + plans.length + ' 个方案到下载文件夹（' + a.download + '）';
+}
+
+function importPlansFromText(text){
+  let data = null;
+  try { data = JSON.parse(text); } catch(e) { $('planHint').innerHTML = '<span style="color:var(--err)">文件不是合法的 JSON</span>'; return; }
+  const list = Array.isArray(data) ? data : (data && data.plans);
+  if(!Array.isArray(list) || !list.length){ $('planHint').innerHTML = '<span style="color:var(--err)">文件里没有找到方案</span>'; return; }
+
+  const names = new Set(plans.map(p => p.name));
+  let added = 0, skipped = 0;
+  list.forEach(p => {
+    if(!p || !Array.isArray(p.areas) || !p.areas.length) { skipped++; return; }
+    let name = String(p.name || '导入方案');
+    if(names.has(name)) name = name + '（导入）';
+    names.add(name);
+    plans.push({
+      id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      name: name, areas: p.areas.map(String),
+      dateMode: p.dateMode || cfgCache.dateMode, interval: p.interval || cfgCache.interval
+    });
+    added++;
+  });
+  api('/api/config', { seatPlans: plans }).then(r => {
+    renderPlans();
+    $('planHint').textContent = added
+      ? ('已导入 ' + added + ' 个方案' + (skipped ? '，跳过 ' + skipped + ' 条无效数据' : '') + '，可在下拉里套用')
+      : '没有可导入的有效方案';
+  });
+}
+
+/* ---------- 座位图（只展示状态，不点选） ---------- */
+function statusColor(st){
+  return ({'1':'#a8c5aa','2':'#f4d296','6':'#e4e0d9','7':'#d3ddd0'})[String(st)] || '#dddcd4';
+}
+const STATUS_NAME = {'1':'空闲','2':'已预约','6':'使用中','7':'临时离开'};
+
+function renderSeatMap(r){
+  if(!r) return;
+  const wrap = $('mapWrap');
+  const v = r.view || { x: 0, y: 0, w: 100, h: 100 };
+  const ps = r.planeSize || { w: 1365, h: 768 };
+
+  // 固定画布 + 等比缩放居中：不管哪个区，地图框大小都一致
+  const Wc = wrap.clientWidth || 1040;
+  const Hc = wrap.clientHeight || 290;
+  const bw = v.w / 100 * ps.w;          // 区域包围盒的原始像素宽
+  const bh = v.h / 100 * ps.h;
+  const k = Math.min(Wc / bw, Hc / bh) * 0.94;   // 留边
+  const offX = (Wc - bw * k) / 2;
+  const offY = (Hc - bh * k) / 2;
+  const toPct = (planePx, off) => ((off + planePx * k) / Wc * 100).toFixed(3);
+
+  // 统计按全部座位算（含官方数据里尺寸为 0 的无效座位），但只渲染有有效坐标的
+  const dist = {};
+  r.seats.forEach(s => { dist[s.status] = (dist[s.status] || 0) + 1; });
+
+  $('mapSeats').innerHTML = r.seats.map(s => {
+    const light = (s.status === '6' || s.status === '7');
+    const valid = isFinite(s.x) && isFinite(s.y) && s.w > 0 && s.h > 0;
+    if (!valid) return '';
+    const px = (s.x - v.x) / 100 * ps.w;
+    const py = (s.y - v.y) / 100 * ps.h;
+    const pw = s.w / 100 * ps.w * k;               // 座位渲染出来的像素宽
+    const txt = pw >= 15 ? escapeHtml(String(s.no).slice(-3)) : '';
+    const fs = pw >= 34 ? 12 : (pw >= 24 ? 11 : 9);
+    return '<div class="seat' + (String(s.status) === '1' ? ' free' : '') + '" data-no="' + escapeHtml(s.no) + '"'
+      + ' title="' + escapeHtml(s.no + ' · ' + (s.statusName || '')) + '"'
+      + ' style="left:' + toPct(px, offX) + '%;top:' + ((offY + py * k) / Hc * 100).toFixed(3) + '%;'
+      + 'width:' + (s.w / 100 * ps.w * k / Wc * 100).toFixed(3) + '%;'
+      + 'height:' + (s.h / 100 * ps.h * k / Hc * 100).toFixed(3) + '%;cursor:default;'
+      + 'background:' + statusColor(s.status) + ';color:' + '#354339' + ';font-size:' + fs + 'px'
+      + '">' + txt + '</div>';
+  }).join('');
+
+  // 醒目的图例：色块 + 名称 + 数量
+  $('mapLegend').innerHTML = ['1', '6', '2', '7'].map(k =>
+    '<span class="item"><span class="sw" style="background:' + statusColor(k) + '"></span>'
+    + STATUS_NAME[k] + ' <span class="cnt">' + (dist[k] || 0) + '</span></span>').join('')
+    ;
+  $('mapEmpty').hidden = r.seats.some(s => isFinite(s.x) && isFinite(s.y) && s.w > 0 && s.h > 0);
+  $('mapEmpty').textContent = '这个区域暂时没有可显示的座位';
+  $('mapTitle').textContent = r.area.name.split('-').slice(-2).join(' · ');
+  $('mapSubtitle').textContent = $('selPremise').selectedOptions[0]?.textContent + '　 |　 ' + ($('dateShow').textContent || '实时座位状态');
+}
+
+async function loadSeatMap(areaId){
+  if(mapLoading) return false;
+  const targetArea = areaId || curArea;
+  if(!targetArea) return false;
+  mapLoading = true;
+  if(currentMapArea && String(targetArea) !== currentMapArea){
+    lastMapData = null; $('mapSeats').replaceChildren(); $('mapLegend').replaceChildren();
+    $('mapEmpty').hidden = false; $('mapEmpty').textContent = '正在获取座位地图…';
+  }
+  $('mapSync').textContent = '加载中...';
+  try{
+    const r = await api('/api/seats', { areaId: targetArea });
+    if(!r.ok) throw mapRequestError(r, '加载失败');
+    lastMapData = r;
+    currentMapArea = String(r.area.id);
+    curArea = currentMapArea;
+    if($('selArea') && [...$('selArea').options].some(o => o.value === currentMapArea)) $('selArea').value = currentMapArea;
+    renderSeatMap(r);
+    renderGrabList();
+    $('mapLoadHelp').hidden = true;
+    mapRetryAt = 0;
+    $('mapSync').textContent = '同步于 ' + r.syncedAt + '　·　该区可约 ' + r.area.free + ' / ' + r.area.total
+      + ' · 仅展示状态';
+    return true;
+  }catch(e){
+    showMapError(e);
+    return false;
+  }finally{
+    mapLoading = false;
+  }
+}
+
+/** 首次进入：校区 → 楼层 → 区域 依次加载并渲染地图 */
+async function initMapBrowser(force){
+  if(mapInitPending || (!force && Date.now() < mapRetryAt)) return false;
+  mapInitPending = true;
+  $('btnAddArea').disabled = true;
+  try{
+    if(!treeData?.length){
+      for(const id of ['selPremise', 'selStorey', 'selArea']) selectMessage(id, '正在加载…');
+    }
+    await loadTree();
+    if(!await loadAreasOfStorey()) return false;
+    mapReady = true;
+    $('btnAddArea').disabled = false;
+    return await loadSeatMap(curArea);
+  }catch(e){
+    mapReady = false;
+    if(!treeData?.length) for(const id of ['selPremise', 'selStorey', 'selArea']) selectMessage(id, e.code === 10001 ? '请重新登录' : '加载失败，请重试');
+    showMapError(e);
+    return false;
+  }finally{ mapInitPending = false; }
+}
+
+/* ---------- 实时刷新 ---------- */
+let liveTimer = null;
+let liveTick = 0;
+let lastRefreshOk = false;
+async function refreshLive(force){
+  if(!force && document.hidden) return;
+  if(mapInitPending || livePending || (!force && Date.now() < mapRetryAt)) return;
+  if(!mapReady){ await initMapBrowser(force); return; }
+  livePending = true;
+  try{
+    const r = await api('/api/areas', {});
+    if(!r.ok){
+      showMapError(mapRequestError(r, '刷新失败'));
+      return;
+    }
+    setTokenBadge('ok');
+    renderAreas(r.areas, r.date, r.stale, r.window, Date.now());
+    const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const isNow = r.mode === 'now';
+    lastRefreshOk = true;
+    $('liveHint').innerHTML = isNow
+      ? '<b>实时同步</b>：查询时刻 ' + (r.window ? r.window.start : '—')
+        + '（预约时可提交窗口 ' + (r.bookWindow ? r.bookWindow.start + '–' + r.bookWindow.end : '—') + '）'
+        + '　·　本地时间 ' + t + '　·　每 6 秒同步一次'
+      : '固定时段 ' + (r.window ? r.window.start + '–' + r.window.end : '—') + '　·　本地时间 ' + t;
+
+    // 自愈：若之前因登录失效导致区域下拉为空，数据恢复后自动补上
+    if(!curArea && !mapLoading) await initMapBrowser();
+
+    liveTick++;
+    if(liveTick % 5 === 0){
+      try{
+        const cc = await api('/api/config');
+        if(cc.ok && cc.config.tokenExp) tokenExpTs = cc.config.tokenExp;
+      }catch(e){}
+    }
+
+    // 内嵌地图每两轮实时刷新（约 12 秒）同步一次
+    mapTick++;
+    if(mapTick % 2 === 0 && !mapLoading && !document.hidden) await loadSeatMap(curArea);
+  }catch(e){
+    // 失败不再静默：面板空着时也能看到原因
+    const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    $('liveHint').innerHTML = '<span style="color:var(--err)">实时数据刷新失败：'
+      + escapeHtml(e && e.message ? e.message : String(e)) + '　(' + t + ')</span>';
+    showMapError(e);
+  }finally{ livePending = false; }
+}
+
+/* ---------- 开始 / 停止 ---------- */
+async function start(){
+  if(startPending) return;
+  startPending = true;
+  $('btnStart').disabled = true;
+  if(!nativeNotifications && 'Notification' in window && Notification.permission === 'default') enableNotifications();
+  try{
+    const r = await api('/api/start', collect());
+    if(!r.ok) throw new Error(r.message || '启动失败');
+    $('btnStop').disabled = false;
+    await tick();
+  }catch(e){ $('planHint').textContent = '启动失败：' + e.message; }
+  finally{ startPending = false; $('btnStart').disabled = false; await tick(); }
+}
+
+async function stop(){
+  try{
+    const r = await api('/api/stop', {});
+    if(!r.ok) throw new Error(r.message || '停止失败');
+    $('planHint').textContent = '停止请求已发送；已发出的预约请求需等待结果。';
+    await tick();
+  }catch(e){ $('planHint').textContent = '停止失败：' + e.message; }
+}
+
+/* ---------- 状态轮询 ---------- */
+let tickPending = false;
+let startPending = false;
+async function tick(){
+  if(tickPending) return;
+  tickPending = true;
+  try{
+    const s = await api('/api/status');
+    $('runState').textContent = s.pendingBooking ? (s.checkingBooking ? '正在核实' : '结果待确认') : (s.running ? '运行中' : (s.success ? '已完成' : '空闲'));
+    $('runState').className = 'pill ' + (s.running ? 'run' : (s.success ? 'on' : ''));
+    $('btnStart').disabled = s.running || startPending || !!s.pendingBooking || !!s.storageError;
+    $('btnStop').disabled = !s.running;
+    currentPendingBooking = s.pendingBooking;
+    $('pendingBooking').hidden = !s.pendingBooking;
+    if(s.pendingBooking) $('pendingDetails').textContent = BookingNotifications.message(s.pendingBooking);
+    $('bookingMessage').textContent = s.bookingMessage || '';
+    $('btnBookingCheck').disabled = s.checkingBooking || s.running;
+    $('btnResolveSuccess').disabled = s.checkingBooking || s.running;
+    $('btnResolveAbsent').disabled = s.checkingBooking || s.running;
+    $('storageError').hidden = !s.storageError;
+    $('storageError').textContent = s.storageError || '';
+    if(s.stopReason) $('planHint').textContent = '任务已停止：' + s.stopReason;
+    $('btnStop').hidden = !s.running;
+    $('btnStart').textContent = s.running ? '正在关注空位…' : ($('verifyOnly').checked ? '开始观察空位' : '开始抢座');
+    $('bookingSummary').hidden = !(s.success && s.booking);
+    if(s.success && s.booking){
+      const details = BookingNotifications.message(s.booking);
+      $('bookingDetails').textContent = details;
+   $('bookingDialogDetails').textContent = details;
+   $('bookingSeat').textContent = s.booking.seat;
+      if(!claimedPageBookings.has(s.booking.id)){
+        const claim = await api('/api/notification-claim', { id: s.booking.id, channel: 'page' });
+        if(claim.claimed || !claim.ok) notifyBooking(s);
+        claimedPageBookings.add(s.booking.id);
+        if($('bookingHistory').open) loadBookingHistory();
+      }
+    }
+
+    const box = $('logs');
+    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+    box.innerHTML = s.logs.map(l =>
+      '<div class="l-' + (l.level || 'info') + '">' + escapeHtml(l.msg) + '</div>').join('');
+    if(atBottom) box.scrollTop = box.scrollHeight;
+  }catch(e){
+    $('runState').textContent = '连接中断';
+    $('runState').className = 'pill';
+    $('notificationHint').textContent = '无法连接本地服务，正在重试：' + e.message;
+  }finally{ tickPending = false; }
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- 一键获取登录态 ---------- */
+async function autoLogin(){
+  const btn = $('btnAuto');
+  btn.disabled = true; btn.textContent = '等待登录中...';
+  $('autoHint').textContent = '正在启动浏览器，请在弹出的窗口中完成登录...';
+  try{
+    const r = await api('/api/auto-login', { maxWaitSec: 300, headlessFirst: false });
+    if(!r.ok) throw new Error(r.message || '无法启动登录');
+  }catch(e){ btn.disabled = false; btn.textContent = '重新获取登录态'; $('autoHint').textContent = e.message; }
+}
+
+let lastLoginReady = false;
+async function pollLogin(){
+  try{
+    const s = await api('/api/login-status');
+    const btn = $('btnAuto');
+    if(!btn) return;
+    if(s.active){
+      lastLoginReady = false;
+      btn.disabled = true;
+      btn.textContent = '等待登录中 ' + s.elapsed + 's';
+      $('autoHint').textContent = s.hint || '等待登录...';
+    }else if(s.tokenOk){
+      btn.disabled = false; btn.textContent = '重新获取登录态';
+      $('autoHint').textContent = '登录态已获取并保存，可直接开始抢座';
+      setTokenBadge('ok');
+      if(!lastLoginReady){
+        lastLoginReady = true;
+        await loadConfig();
+        await initMapBrowser(true);
+      }
+    }else if(s.error){
+      btn.disabled = false; btn.textContent = '一键获取登录态';
+      $('autoHint').textContent = s.error;
+    }else{
+      btn.disabled = false; btn.textContent = '一键获取登录态';
+    }
+  }catch(e){}
+}
+
+$('btnAuto').onclick = autoLogin;
+$('btnVerify').onclick = verify;
+$('btnStart').onclick = start;
+$('btnStop').onclick = stop;
+$('verifyOnly').onchange = () => api('/api/config', { verifyOnly: $('verifyOnly').checked });
+$('autoRefresh').onchange = () => api('/api/config', { autoRefresh: $('autoRefresh').checked });
+$('timeMode').onchange = () => {
+  syncTimeModeUI();
+  api('/api/config', { timeMode: $('timeMode').value });
+  refreshLive(true);
+};
+$('dateMode').onchange = () => { api('/api/config', { dateMode: $('dateMode').value }); refreshLive(true); };
+$('startTime').onchange = () => api('/api/config', { startTime: $('startTime').value });
+$('btnMapRefresh').onclick = async () => {
+  const b = $('btnMapRefresh'); b.disabled = true; b.textContent = '刷新中...';
+  try { if(mapReady) await loadSeatMap(curArea); else await initMapBrowser(true); }
+  finally { b.disabled = false; b.textContent = '刷新地图'; }
+};
+$('btnAddArea').onclick = addCurrentAreaToList;
+$('planSelect').onchange = () => applyPlan($('planSelect').value);
+$('btnPlanSave').onclick = showPlanEdit;
+$('btnPlanDel').onclick = deletePlan;
+$('btnPlanExport').onclick = exportPlans;
+$('btnPlanImport').onclick = () => $('planFileInput').click();
+$('planFileInput').onchange = e => {
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => importPlansFromText(String(reader.result || ''));
+  reader.readAsText(f);
+  e.target.value = '';
+};
+$('btnPlanOk').onclick = confirmPlanEdit;
+$('btnPlanCancel').onclick = () => { $('planEditRow').style.display = 'none'; planEditMode = ''; };
+$('planNameInput').onkeydown = e => { if(e.key === 'Enter') confirmPlanEdit(); };
+$('selPremise').onchange = async () => {
+  curPremise = $('selPremise').value;
+  const pm = (treeData || []).find(t => t.id === curPremise);
+  curStorey = pm && pm.storeys[0] ? pm.storeys[0].id : '';
+  fillSelect($('selStorey'), (pm && pm.storeys) || [], 'id', x => x.name, curStorey);
+  curArea = '';
+  await loadAreasOfStorey();
+  await loadSeatMap(curArea);
+};
+$('selStorey').onchange = async () => {
+  curStorey = $('selStorey').value;
+  curArea = '';
+  await loadAreasOfStorey();
+  await loadSeatMap(curArea);
+};
+$('selArea').onchange = async () => { curArea = $('selArea').value; await loadSeatMap(curArea); };
+$('endTime').onchange = () => api('/api/config', { endTime: $('endTime').value });
+
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+
+if($('liveHint')) $('liveHint').textContent = '正在获取实时数据（首次可能要几秒）...';
+
+loadConfig().then(async () => {
+  // 界面已取消"按座位号选座"，清掉历史遗留的指定座位，避免"只在某几个位里抢"的隐藏状态
+  if((cfgCache.seatPrefs || []).length){
+    api('/api/config', { seatPrefs: [] }).then(() => {
+      cfgCache.seatPrefs = [];
+      $('planHint').textContent = '已清除历史遗留的"指定座位"，现在按抢选名单里的区域抢任意空位';
+    });
+  }
+  await initMapBrowser(true);
+}).catch(showMapError);
+setInterval(tick, 1000);
+setInterval(pollLogin, 1500);
+setInterval(refreshLive, 6000);
+tick();
+pollLogin();
+</script>
+<script src="/warm-study.js"></script>
+<script src="/desktop-study.js"></script>
+</body>
+</html>

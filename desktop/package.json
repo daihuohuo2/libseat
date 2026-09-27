@@ -1,0 +1,15 @@
+{
+  "name": "libseat-desktop",
+  "productName": "座位助手",
+  "version": "1.0.0",
+  "description": "中南大学图书馆座位预约助手（桌面版）",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}

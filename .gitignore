@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Local accounts, preferences, booking history and browser sessions
+/config.json
+/config.json.*
+/config.*.json
+!/config.example.json
+/bookings.json
+/bookings.json.*
+/browser-data/
+/.app-profile/
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Runtime logs, caches and generated outputs
+*.log
+*.log.*
+*.bak
+*.tmp
+*.pid
+/.recon/
+/.tmp/
+/.workbuddy/
+/.workbuddy-ai/
+/android/build/
+/android/output/
+*.apk
+*.idsig
+*.lnk
+
+# Local design iterations and diagnostic captures
+/design/
+/design-qa.md
+/*.png
+/test-cdp.js
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
