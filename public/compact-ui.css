@@ -1,0 +1,70 @@
+/* Compact tool layout shared by the browser and desktop window. */
+:root { --display: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+body { font-size:13px; }
+.topbar, .desktop-app .topbar { display:flex; height:54px; padding:0 22px; gap:12px; }
+.brand, .account, .desktop-app .account { flex-direction:row; align-items:center; gap:14px; padding:0; border:0; }
+.brand-name { font-size:18px; }
+.brand-note { display:inline; font-size:11px; }
+.custom-titlebar .topbar { height:42px; }
+.custom-titlebar .brand-name { display:none; }
+.account time { display:none!important; }
+.account button, .desktop-app #btnAccount { display:inline-flex; flex-direction:row; align-items:center; gap:5px; font-size:12px; padding:6px; }
+.desktop-app .account .pill { display:inline-block; }
+.app-shell, .desktop-app .app-shell { max-width:1280px; margin:0 auto; padding:0 18px 12px; }
+.tabs, .desktop-app .tabs { display:flex; flex-direction:row; height:44px; gap:12px; padding:0; margin:0 0 12px; border-bottom:1px solid var(--line); }
+.tabs button, .desktop-app .tabs button { padding:10px 12px; border-radius:0; font-size:13px; border:0; border-bottom:2px solid transparent; }
+.desktop-app .tabs button[aria-selected=true] { border-bottom-color:var(--accent); background:transparent; }
+.workspace, .desktop-app .workspace { grid-template-columns:260px minmax(0,1fr); gap:12px; align-items:start; }
+.surface, .desktop-app .surface { border:1px solid var(--line); border-radius:8px; }
+.preferences, .desktop-app .preferences { padding:16px; }
+h2, .desktop-app h2, .shortlist h2, .desktop-app .shortlist h2, .map-heading h2, .desktop-app .map-heading h2 { font-size:16px; }
+h3 { font-size:14px; }
+.selectors, .desktop-app .selectors { grid-template-columns:45px minmax(0,1fr); gap:8px; margin:12px 0; }
+.selectors label, .desktop-app .selectors label { font-size:12px; }
+.selectors select, .desktop-app .selectors select { height:34px; }
+.preferences>button { font-size:12px; padding:8px; }
+.shortlist, .desktop-app .shortlist { margin-top:14px; padding-top:12px; }
+.chip, .desktop-app .chip { padding:6px 8px; font-size:12px; }
+.plan-picker, .desktop-app .plan-picker { margin-top:14px; }
+.primary-actions, .desktop-app .primary-actions { margin-top:0; padding-top:12px; }
+.primary-actions>button, .desktop-app .primary-actions>button { font-size:13px; margin-top:7px; padding:8px; }
+#planHint { min-height:0; }
+.map-panel, .desktop-app .map-panel { padding:16px 18px 0; }
+.map-panel .renewal-panel { margin:0 0 16px; padding:0 0 14px; border-top:0; border-bottom:1px solid var(--line); }
+.renewal-panel .renewal-caption { font-size:11px; margin:5px 0 10px; }
+.renewal-fields { gap:12px; margin:10px 0; }
+.renewal-fields .label { margin-bottom:4px; font-size:11px; }
+.renewal-fields select, .renewal-fields input { height:34px; }
+.renewal-panel .btns button { padding:8px 12px; font-size:12px; }
+.renewal-panel .btns a { align-self:center; font-size:11px; }
+#renewalStatus { padding:0; margin-top:8px; font-size:12px; background:none; line-height:1.6; }
+#renewalStatus[data-error=true] { padding:8px 10px; }
+#renewalStatus:empty, #renewalTiming:empty, .hint:empty { display:none; }
+.renewal-panel details { margin-top:6px; }
+.renewal-panel summary { font-size:11px; }
+.renewal-panel #renewalTiming { margin:6px 0; font-size:11px; }
+#mapLegend, .desktop-app #mapLegend { margin-top:10px; gap:6px 13px; font-size:11px; }
+.map-tools { justify-content:flex-end; margin-top:6px; }
+.map-panel #mapWrap, .desktop-app .map-panel #mapWrap { height:310px; min-height:240px; margin:8px 0 12px; border-radius:8px; }
+.map-footer, .desktop-app .map-footer { min-height:44px; padding:8px 0; }
+.map-footer>div, .desktop-app .map-footer>div { flex-direction:row; align-items:center; }
+.success-banner { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:8px 18px; padding:10px 14px; margin-bottom:12px; font-size:12px; }
+.success-banner .booking-details { white-space:normal; line-height:1.6; }
+.success-banner button { margin:0; padding:7px 10px; font-size:12px; }
+.app-footer { justify-content:flex-end; padding:10px 0; }
+.app-footer a { color:var(--dim); text-decoration:none; }
+.secondary-panel, .desktop-app .secondary-panel { min-height:400px; padding:22px; }
+#helpDialog { max-height:85vh; overflow:auto; }
+#helpDialog h3 { margin:18px 0 5px; }
+#helpDialog p { font-size:13px; line-height:1.85; color:var(--dim); margin-top:6px; }
+@media(max-width:740px) {
+  .topbar, .desktop-app .topbar { padding:0 12px; }
+  .brand-note { display:none; }
+  .app-shell, .desktop-app .app-shell { padding:0 10px 10px; }
+  .workspace, .desktop-app .workspace { grid-template-columns:1fr; }
+  .success-banner { grid-template-columns:1fr auto; }
+  .success-banner .booking-details { grid-column:1/-1; grid-row:2; }
+  .map-panel, .desktop-app .map-panel { padding:14px 12px 0; }
+  .map-footer>div, .desktop-app .map-footer>div { flex-wrap:wrap; }
+  .renewal-fields { grid-template-columns:1fr 1fr; }
+}

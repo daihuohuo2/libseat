@@ -2,6 +2,15 @@
 // The archived official seat-record page imports `g` from this API module.
 // Read its URL declaration; never evaluate downloaded JavaScript or guess an endpoint.
 const RECORD_ASSET = '/h5/assets/sear-record.1787201907183.js';
+async function currentRecordsSource(readText) {
+  const html = await readText('/h5/');
+  const entry = html.match(/src=["'](\/h5\/assets\/index\.\d+\.js)["']/)?.[1];
+  if (!entry) throw Error('无法识别官网当前版本');
+  const index = await readText(entry);
+  const asset = index.match(/["'](?:\.\/)?(?:assets\/)?(sear-record\.\d+\.js)["']/)?.[1];
+  if (!asset) throw Error('无法识别官网当前预约记录模块');
+  return readText('/h5/assets/' + asset);
+}
 function recordsEndpoint(source) {
   const exports = source.match(/export\s*\{([^}]+)\}/);
   const entry = exports && exports[1].split(',').map(s => s.trim()).find(s => /\s+as\s+g$/.test(s));
@@ -34,4 +43,4 @@ function matchesRecord(record, booking) {
   return sameSeat && timestamp(record.beginTime) === booking.date + ' ' + booking.startTime
     && timestamp(record.endTime) === booking.date + ' ' + booking.endTime;
 }
-module.exports = { RECORD_ASSET, recordsEndpoint, matchesRecord };
+module.exports = { RECORD_ASSET, currentRecordsSource, recordsEndpoint, matchesRecord };

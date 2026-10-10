@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="cn.libseat.mobile.test">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+  <application android:label="LibSeat isolated tests" />
+  <instrumentation android:name="cn.libseat.mobile.FlowTest" android:targetPackage="cn.libseat.mobile" />
+</manifest>

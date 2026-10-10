@@ -11,28 +11,15 @@
   const title = document.createElement('span'); title.textContent = '座位助手';
   const logo = document.createElement('img');
   logo.src = '/app-192.png'; logo.alt = ''; logo.className = 'desktop-app-logo';
-  const tagline = document.createElement('span'); tagline.className = 'desktop-title-note'; tagline.textContent = '专注的时光，更好的自己';
-  titlebar.append(logo, title, tagline);
-
-  const sidebar = document.createElement('aside');
-  sidebar.className = 'desktop-sidebar';
-  sidebar.setAttribute('aria-label', '应用导航');
-  const brand = document.createElement('div'); brand.className = 'desktop-brand';
-  const name = document.createElement('strong'); name.textContent = '座位助手';
-  const sub = document.createElement('span'); sub.textContent = '中南大学图书馆';
-  brand.append(name, sub);
+  titlebar.append(logo, title);
   const tabs = document.querySelector('.tabs');
-  tabs.setAttribute('aria-orientation', 'vertical');
-  const preview = document.getElementById('previewBadge');
-  const quote = document.createElement('p'); quote.className = 'desktop-sidebar-note'; quote.textContent = '在图书馆，\n与更好的自己相遇。';
-  const account = document.querySelector('.account');
-  sidebar.append(brand, tabs, quote, account, preview);
+  tabs.setAttribute('aria-orientation', 'horizontal');
 
   const statusbar = document.createElement('footer'); statusbar.className = 'desktop-statusbar';
   const status = document.createElement('span'); status.id = 'desktopStatus';
   const hint = document.createElement('span'); hint.textContent = '关闭窗口后仍在托盘运行';
   statusbar.append(status, hint);
-  document.body.prepend(titlebar, sidebar);
+  document.body.prepend(titlebar);
   document.body.append(statusbar);
 
   const syncStatus = () => {

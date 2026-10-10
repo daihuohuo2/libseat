@@ -6,7 +6,7 @@ const path = require('path');
 class BookingStore {
   constructor(file) {
     this.file = file;
-    this.data = { version: 1, pending: null, history: [], claims: [] };
+    this.data = { version: 1, pending: null, pendingAction: null, history: [], claims: [] };
     this.error = '';
     try {
       if (fs.existsSync(file)) {
@@ -14,7 +14,9 @@ class BookingStore {
         const validBooking = b => b && ['id', 'seat', 'date', 'startTime', 'endTime'].every(k => typeof b[k] === 'string' && b[k]);
         if (data.version !== 1 || !Array.isArray(data.history) || !Array.isArray(data.claims)
             || !data.history.every(validBooking) || !data.claims.every(k => typeof k === 'string')
-            || (data.pending && !validBooking(data.pending))) throw Error('记录格式无效');
+            || (data.pending && !validBooking(data.pending))
+            || (data.pendingAction && (!['cancel', 'leave', 'checkout'].includes(data.pendingAction.action)
+              || !data.pendingAction.bookingId || !data.pendingAction.recordId))) throw Error('记录格式无效');
         this.data = data;
       }
     } catch (e) { this.error = '无法读取预约记录：' + e.message; }

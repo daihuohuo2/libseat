@@ -23,6 +23,8 @@ public class MainActivity extends Activity {
     boolean bound, resumed;
     String exportData;
     ValueCallback<Uri[]> fileCallback;
+    GeolocationPermissions.Callback locationCallback;
+    String locationOrigin;
     final ServiceConnection connection=new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName n, IBinder b) {
             service=((EngineService.LocalBinder)b).service(); service.activity=MainActivity.this; bound=true;
@@ -46,6 +48,13 @@ public class MainActivity extends Activity {
         root.removeAllViews(); ui=new WebView(this); LocalPages.configure(ui);
         ui.setWebViewClient(new LocalPages(this)); ui.addJavascriptInterface(new MobileBridge(ui),"Mobile");
         ui.setWebChromeClient(new WebChromeClient() {
+            @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
+                if(!LocalPages.ORIGIN.equals(origin) && !(LocalPages.ORIGIN+"/").equals(origin)) { cb.invoke(origin,false,false); return; }
+                if(checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED) { cb.invoke(origin,true,false); return; }
+                if(locationCallback!=null) locationCallback.invoke(locationOrigin,false,false);
+                locationCallback=cb; locationOrigin=origin;
+                requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION},8);
+            }
             @Override public boolean onConsoleMessage(ConsoleMessage m) { if(m.messageLevel()==ConsoleMessage.MessageLevel.ERROR) android.util.Log.e("LibseatUI",m.message()+" line "+m.lineNumber()); return true; }
             @Override public boolean onJsAlert(WebView v,String url,String text,JsResult result) { new AlertDialog.Builder(MainActivity.this).setMessage(text).setPositiveButton("知道了",(d,w)->result.confirm()).setOnCancelListener(d->result.cancel()).show(); return true; }
             @Override public boolean onJsConfirm(WebView v,String url,String text,JsResult result) { new AlertDialog.Builder(MainActivity.this).setMessage(text).setPositiveButton("确认",(d,w)->result.confirm()).setNegativeButton("取消",(d,w)->result.cancel()).setOnCancelListener(d->result.cancel()).show(); return true; }
@@ -77,10 +86,18 @@ public class MainActivity extends Activity {
     @Override protected void onResume() { super.onResume(); resumed=true; current=this; if(ui!=null) { ui.onResume(); ui.evaluateJavascript("window.dispatchEvent(new Event('focus'))",null); } }
     @Override protected void onPause() { resumed=false; if(ui!=null) ui.onPause(); super.onPause(); }
     @Override protected void onDestroy() {
+        if(locationCallback!=null) { locationCallback.invoke(locationOrigin,false,false); locationCallback=null; }
         if(service!=null && service.activity==this) service.activity=null;
         if(bound) unbindService(connection); bound=false;
         if(ui!=null) { ui.destroy(); ui=null; }
         if(current==this) current=null; super.onDestroy();
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results) {
+        super.onRequestPermissionsResult(request,permissions,results);
+        if(request==8 && locationCallback!=null) {
+            locationCallback.invoke(locationOrigin,checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED,false);
+            locationCallback=null;
+        }
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
@@ -108,8 +125,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean notificationsAllowed() { return getSystemService(NotificationManager.class).areNotificationsEnabled(); }
         @JavascriptInterface public void api(int id,String path,String method,String body) { runOnUiThread(()->{
             if(service==null || page!=ui) return;
-            if(!path.matches("/api/[a-z-]+") || (!method.equals("GET") && !method.equals("POST")) || body.length()>2000000) return;
-            try { if(path.equals("/api/start")) service.enterForeground(); }
+            if(!path.matches("/api/(?:[a-z-]+|renewal/(?:start|stop|check))") || (!method.equals("GET") && !method.equals("POST")) || body.length()>2000000) {
+                page.evaluateJavascript("mobileResult("+id+",400,"+JSONObject.quote("{\"ok\":false,\"message\":\"无效请求\"}")+")",null); return;
+            }
+            try { if(path.equals("/api/start") || path.equals("/api/renewal/start")) service.enterForeground(); }
             catch(Exception e) { page.evaluateJavascript("mobileResult("+id+",200,"+JSONObject.quote("{\"ok\":false,\"message\":\"系统不允许启动后台任务，请返回应用后重试\"}")+")",null); return; }
             service.dispatch(path,method,body,(code,text)->{ if(page==ui) page.evaluateJavascript("mobileResult("+id+","+code+","+JSONObject.quote(text)+")",null); });
         }); }

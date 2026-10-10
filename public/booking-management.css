@@ -1,0 +1,8 @@
+#bookingStatus { display:inline-block; color:var(--primary,#326853); margin:4px 0 12px; font-size:14px; }
+#bookingActionMessage { white-space:pre-wrap; overflow-wrap:anywhere; color:#885730; min-height:1.5em; font-size:13px; margin:12px 0; }
+#bookingActions { display:flex; gap:10px; flex-wrap:wrap; }
+#bookingActions button { flex:1 1 140px; margin:0; min-height:44px; }
+#bookingActions .booking-release { background:#fff8f5; color:#9c4935; border:1px solid #ceaa9f; }
+#bookingDialog #bookingRefresh { background:transparent; color:var(--primary,#326853); border:1px solid #c5d7cd; margin:12px 0; }
+#bookingActions button[hidden] { display:none; }
+#bookingDialog button:disabled { opacity:.55; cursor:wait; }

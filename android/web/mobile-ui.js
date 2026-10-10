@@ -1,18 +1,33 @@
 (() => {
   const demo = Mobile.isDemo();
   document.documentElement.classList.add('android-app');
+  const preferences = document.querySelector('.preferences');
+  const fold = document.createElement('details'); fold.className='mobile-selection'; fold.open=true;
+  const summary = document.createElement('summary'); summary.textContent='选座设置';
+  const foldState = document.createElement('span'); summary.append(foldState);
+  preferences.querySelector('h2').remove();
+  while (preferences.firstChild) fold.append(preferences.firstChild);
+  fold.prepend(summary); preferences.append(fold);
+  fold.ontoggle = () => { foldState.textContent=fold.open?'收起':'展开'; };
+  let bookingView;
+  window.MobileUI = { render(s) {
+    const key=s.success?s.booking?.id:'';
+    if (key!==bookingView) { fold.open=!key; bookingView=key; }
+  } };
   const bar = document.createElement('div'); bar.className = 'mobile-mode';
-  const label = document.createElement('span'); label.textContent = demo ? '演示模式 · 全部为模拟数据' : '安卓体验版 · 在手机上独立运行';
+  const label = document.createElement('span'); label.textContent = demo ? '演示模式 · 模拟数据' : '手机版';
   const toggle = document.createElement('button'); toggle.className = 'text-button'; toggle.textContent = demo ? '返回真实模式' : '体验演示';
   toggle.onclick = async () => {
     const s = await api('/api/status');
-    if (s.running || s.checkingBooking || s.pendingBooking) { alert('请先停止任务并处理待确认预约，再切换模式。'); return; }
+    if (s.running || s.checkingBooking || s.pendingBooking || s.renewal?.active || s.renewal?.busy
+      || ['cancel-unknown','booking-unknown'].includes(s.renewal?.phase) || s.bookingManagement?.busy
+      || s.bookingManagement?.checking || s.bookingManagement?.pendingAction) { alert('请先停止任务并处理待确认预约，再切换模式。'); return; }
     Mobile.switchMode(!demo);
   };
-  bar.append(label, toggle); document.querySelector('.hero').before(bar);
-  const info = document.createElement('p'); info.className = 'mobile-info';
-  info.textContent = demo ? '可体验地图、保存方案和模拟预约；不会向学校提交请求。' : '首次使用请登录学校账号。任务运行时会显示常驻通知；省电或强制停止可能中断任务。';
-  bar.after(info);
+  bar.append(label, toggle); document.querySelector('.app-shell').prepend(bar);
+  const helpText = document.createElement('p');
+  helpText.textContent = '手机独立运行。请允许通知和后台运行；锁屏省电、断网或强制停止可能中断任务。通知栏可停止抢座与重约，重新打开后请核实状态。';
+  document.getElementById('helpDialog').append(helpText);
   const notice = () => {
     $('btnNotifications').hidden = false; $('btnNotifications').textContent = Mobile.notificationsAllowed() ? '通知设置' : '允许手机通知';
     $('notificationHint').textContent = Mobile.notificationsAllowed() ? '成功后会显示手机通知。任务运行中可在通知栏停止。' : '手机通知尚未允许，成功结果仍保存在应用内。';
@@ -21,6 +36,13 @@
   window.addEventListener('focus', notice);
   $('btnAuto').textContent = '登录学校账号';
   if (demo) {
+    const sign = document.createElement('button'); sign.id='btnDemoSignIn'; sign.className='text-button'; sign.textContent='模拟到馆签到';
+    sign.onclick = async () => {
+      const r = await api('/api/demo-signin', {});
+      if (!r.ok) { alert(r.message); return; }
+      await api('/api/booking-state', {}); await tick();
+    };
+    bar.append(sign);
     $('bookingTitle').textContent = '演示预约成功';
     $('bookingDialog').querySelector('.booking-card > .hint').textContent = '这是模拟结果，没有向学校提交预约。';
     $('bookingSummary').querySelector('strong').textContent = '演示预约成功';
@@ -33,7 +55,4 @@
     Mobile.exportPlans(planExportPayload());
   };
   $('btnPlanImport').onclick = () => Mobile.importPlans();
-  const help = document.createElement('button'); help.className = 'text-button'; help.textContent = '后台运行说明';
-  help.onclick = () => alert('开始任务后，请允许通知，并在手机系统中允许座位助手后台运行。\n\n锁屏省电、网络切换、系统回收和强制停止都可能中断任务。重新打开后不会自动恢复抢座；若上次提交结果不确定，会先核实，避免重复预约。\n\n本版仍需在你的手机和学校网络下验证登录与真实预约。');
-  document.querySelector('.app-footer').append(help);
 })();

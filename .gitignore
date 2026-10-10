@@ -8,6 +8,8 @@ node_modules/
 !/config.example.json
 /bookings.json
 /bookings.json.*
+/renewal.json
+/renewal.json.*
 /browser-data/
 /.app-profile/
 .env

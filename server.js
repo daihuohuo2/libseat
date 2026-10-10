@@ -16,9 +16,13 @@ const path = require('path');
 const crypto = require('crypto');
 const browserLogin = require('./browser-login.js');
 const seatPrefs = require('./seat-prefs.js');
+const areaSeatPrefs = require('./public/area-seat-prefs.js');
 const { BookingStore } = require('./booking-store.js');
 const { validateBookingWindow } = require('./booking-window.js');
-const { RECORD_ASSET, recordsEndpoint, matchesRecord } = require('./reservation-records.js');
+const { selectedAreaIds, resolveBookingRule, resolveRenewalRule, validateSubmission, orderBody } = require('./booking-protocol.js');
+const { currentRecordsSource, recordsEndpoint, matchesRecord } = require('./reservation-records.js');
+const { Renewal } = require('./renewal.js');
+const { BookingManagement } = require('./booking-management.js');
 
 const BASE = 'https://libzw.csu.edu.cn';
 const AES_IV = 'ZZWBKJ_ZHIHUAWEI';
@@ -80,7 +84,8 @@ const DEFAULT_CONFIG = {
   autoRefresh: true,           // token 过期时自动静默续期
   seatPrefs: [],               // 心仪座位号，按优先级；为空则任意座位
   seatPrefMode: 'only',        // only = 只抢心仪座位（没有就继续等）；prefer = 优先心仪座位（没有就任意）
-  preferAreas: [],             // 心仪区域（有序）：只想在这些区里找座位；为空则所有目标区
+  preferAreas: [],             // 抢选区域集合，无优先级；为空则所有目标区
+  areaSeatPrefs: {},           // 按区域保存 { mode: 'any' | 'prefer', seats: [] }，优先后本区兜底
   seatPlans: [],               // 心仪座位方案库：[{ id, name, seats: [], mode, areas: [] }]
   activePlanId: ''             // 当前启用的方案 id
 };
@@ -204,7 +209,7 @@ const isTransient = e => {
  */
 async function api(pathname, body, token, useCrypto, opts) {
   const priority = (opts && opts.priority) || 'low';
-  const submitting = pathname === '/v4/space/confirm';
+  const submitting = ['/v4/space/confirm', '/v4/space/cancel', '/v4/space/leave', '/v4/space/checkout'].includes(pathname);
   return schedule(async () => {
     let lastErr = null;
     const attempts = submitting || priority === 'high' ? 1 : 3;
@@ -274,9 +279,9 @@ async function apiOnce(pathname, body, token, useCrypto) {
 function fetchAreas(cfg, date, priority) {
   const w = effectiveWindow(cfg, 'view');
   return api('/v4/space/pick', {
-    premisesIds: cfg.premisesIds,
+    premisesIds: [],
     categoryIds: [],
-    storeyIds: cfg.storeyIds,
+    storeyIds: [], // 查询所有楼层，再按区域 ID 筛选，避免漏掉跨楼层/跨馆的名单
     boutiqueIds: [],
     date: date,
     start_time: w.start,
@@ -285,8 +290,8 @@ function fetchAreas(cfg, date, priority) {
 }
 
 /** 查某区域座位列表 */
-function fetchSeats(cfg, areaId, date, priority) {
-  const w = effectiveWindow(cfg, 'view');
+function fetchSeats(cfg, areaId, date, priority, window) {
+  const w = window || effectiveWindow(cfg, 'view');
   return api('/v4/Space/seat', {
     id: areaId,
     day: date,
@@ -313,20 +318,14 @@ function activePlanName(cfg) {
 }
 
 /** 按"心仪座位"优先级排列候选（实现见 seat-prefs.js） */
-function orderCandidates(cfg, freeSeats) {
-  return seatPrefs.orderCandidates(cfg, freeSeats);
+function orderCandidates(cfg, freeSeats, areaId) {
+  return seatPrefs.orderAreaCandidates(cfg, areaId, freeSeats);
 }
 
 /** 提交预约（加密） */
 function submitOrder(cfg, seatId, date, window, booking) {
   const w = window || effectiveWindow(cfg, 'book');
-  const body = {
-    seat_id: seatId,
-    segment: '',
-    day: date,
-    start_time: w.start,
-    end_time: w.end
-  };
+  const body = orderBody(seatId, date, w);
   if (cfg.usePoints && cfg.lat && cfg.lng) {
     body.points = {
       lat: Number(cfg.lat),
@@ -338,8 +337,15 @@ function submitOrder(cfg, seatId, date, window, booking) {
     const live = loadConfig();
     let reason = state.stopFlag ? '任务已停止' : '';
     if (!reason && bookingSignature(live) !== bookingSignature(cfg)) reason = '设置已变化，将按最新设置重新查询';
-    if (!reason) reason = validateBookingWindow(live, date, w);
+    if (!reason) reason = validateSubmission(live, date, w);
     if (reason) { const e = new Error(reason); e.beforeSubmission = true; throw e; }
+    // A current-day segment starts when submitted; record the actual minute.
+    if (w.reserveType === '1' && date === fmtDate(new Date())) {
+      const now = new Date();
+      const start = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      booking.startTime = start > w.start ? start : w.start;
+    }
+    booking.bookedAt = new Date().toISOString();
     try { bookingStore.setPending(booking); }
     catch (e) { e.beforeSubmission = true; e.storageFailure = true; throw e; }
     state.pendingBooking = booking;
@@ -348,7 +354,7 @@ function submitOrder(cfg, seatId, date, window, booking) {
 
 function bookingSignature(cfg) {
   return JSON.stringify(['dateMode', 'timeMode', 'startTime', 'endTime', 'axisStart', 'axisEnd',
-    'axisStep', 'axisMaxMin', 'verifyOnly', 'areaIds', 'preferAreas', 'seatPrefs', 'seatPrefMode'].map(k => cfg[k]));
+    'axisStep', 'axisMaxMin', 'verifyOnly', 'areaIds', 'preferAreas', 'areaSeatPrefs', 'seatPrefs', 'seatPrefMode'].map(k => cfg[k]));
 }
 
 /* ============================================================
@@ -423,8 +429,7 @@ function effectiveWindow(cfg, purpose) {
 function windowLabel(cfg) {
   if (cfg.timeMode !== 'now') return '固定 ' + cfg.startTime + '-' + cfg.endTime;
   const v = effectiveWindow(cfg, 'view');
-  const b = effectiveWindow(cfg, 'book');
-  return '此刻 ' + v.start + '（快照）· 预约窗口 ' + b.start + '-' + b.end;
+  return '此刻 ' + v.start + '（快照）· 实际预约时段以各区域官网规则为准';
 }
 
 /**
@@ -451,7 +456,8 @@ async function collectAreaStatus(cfg, date, priority) {
   if (r.code !== 0) return { code: r.code, message: r.message };
 
   const list = (r.data && r.data.area) || [];
-  const targets = list.filter(a => cfg.areaIds.includes(String(a.id)));
+  const targetIds = new Set([...(cfg.areaIds || []).map(String), ...selectedAreaIds(cfg)]);
+  const targets = list.filter(a => targetIds.has(String(a.id)));
   const areas = [];
 
   for (const a of targets) {
@@ -501,6 +507,8 @@ const state = {
   lastCheck: null,
   lastAreas: [],
   orderResult: null,
+  lastFailure: '',
+  areaCursor: 0,
   booking: null,
   pendingBooking: bookingStore.data.pending,
   checkingBooking: false,
@@ -508,8 +516,11 @@ const state = {
   storageError: bookingStore.error,
   success: false
 };
-const savedBooking = bookingStore.data.history.find(b => b.outcome === 'success');
-if (savedBooking && !state.pendingBooking) { state.booking = savedBooking; state.success = true; }
+const savedBooking = bookingStore.data.history[0];
+if (savedBooking && ['success', 'cancelled', 'completed'].includes(savedBooking.outcome) && !state.pendingBooking) {
+  state.booking = { ...savedBooking, remoteState: savedBooking.remoteState || (savedBooking.outcome === 'success' ? undefined : savedBooking.outcome) };
+  state.success = savedBooking.outcome === 'success';
+}
 
 function completeBooking(booking, source) {
   const confirmed = { ...booking, confirmedBy: source };
@@ -533,9 +544,11 @@ async function fetchOwnReservations(cfg) {
       if (!mock.recordAsset) throw Error('模拟接口未提供预约记录模块');
       source = mock.recordAsset;
     } else {
-      const response = await fetch(BASE + RECORD_ASSET, { signal: AbortSignal.timeout(REQ_TIMEOUT_MS) });
-      if (!response.ok) throw Error('无法读取官网预约记录模块');
-      source = await response.text();
+      source = await currentRecordsSource(async asset => {
+        const response = await fetch(BASE + asset, { signal: AbortSignal.timeout(REQ_TIMEOUT_MS) });
+        if (!response.ok) throw Error('无法读取官网预约记录模块');
+        return response.text();
+      });
     }
     cachedRecordsEndpoint = recordsEndpoint(source);
   }
@@ -563,6 +576,89 @@ async function reconcileBooking() {
   finally { state.checkingBooking = false; }
 }
 
+const renewal = new Renewal(process.env.LIBSEAT_RENEWAL_FILE || path.join(path.dirname(CONFIG_FILE), 'renewal.json'), {
+  config: loadConfig,
+  stopSearch: () => { state.stopFlag = true; },
+  booking: () => state.success ? state.booking : null,
+  resolvedBooking: id => bookingStore.data.history.find(b => b.id === id),
+  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError || management.blocked(),
+  records: () => fetchOwnReservations(loadConfig()),
+  prepare: async (booking, window) => {
+    const cfg = loadConfig();
+    let areaId = booking.areaId;
+    if (!areaId) {
+      const own = await api('/v4/index/subscribe', {}, cfg.token, false, { priority: 'high' });
+      const row = own?.code === 0 && own.data?.find(r => String(r.type) === '1'
+        && String(r.space_id || r.space) === String(booking.seatId));
+      areaId = row?.area_id;
+    }
+    if (!areaId) throw Error('无法确认原座位所在区域');
+    const map = await fetchSpaceMap({ ...cfg, dateMode: 'today', timeMode: 'now' }, String(areaId), booking.date, 'high');
+    if (map?.code !== 0) throw Error(map?.message || '无法读取官网预约时段');
+    const rule = resolveRenewalRule(map.data, booking, cfg, { start: window.startTime, end: window.endTime });
+    return { areaId: String(areaId), startTime: rule.start, endTime: rule.end,
+      reserveType: rule.reserveType, segment: rule.segment, axis: rule.axis };
+  },
+  // Verified against the official seat-record page: cancel({id: record.id}),
+  // /h5/assets/index.1787201907183.js export `$`. Plain JSON, no automatic retries.
+  cancel: (id, beforeSend) => api('/v4/space/cancel', { id }, loadConfig().token, false, {
+    priority: 'high', beforeSend() {
+      try { beforeSend(); } catch (e) { e.beforeSubmission = true; throw e; }
+    }
+  }),
+  reserve: (booking, beforeSend) => {
+    const cfg = loadConfig();
+    const body = orderBody(booking.seatId, booking.date, { reserveType: booking.reserveType,
+      segment: booking.segment, start: booking.startTime, end: booking.endTime });
+    if (cfg.usePoints && cfg.lat && cfg.lng) body.points = { lat: Number(cfg.lat), lng: Number(cfg.lng), time: Math.floor(Date.now() / 1000) };
+    return api('/v4/space/confirm', body, cfg.token, true, { priority: 'high', beforeSend() {
+      try {
+        beforeSend();
+        const live = loadConfig();
+        const invalid = validateSubmission({ ...live, ...renewal.job.axis, dateMode: 'today', timeMode: 'now' }, booking.date,
+          { reserveType: booking.reserveType, segment: booking.segment, axis: booking.axis,
+            start: booking.startTime, end: booking.endTime });
+        if (invalid) throw Error(invalid);
+        bookingStore.setPending(booking);
+        state.pendingBooking = booking;
+      } catch (e) { e.beforeSubmission = true; throw e; }
+    } });
+  },
+  cancelled: booking => {
+    state.success = false; state.booking = null;
+    try { bookingStore.finish(booking, 'cancelled'); }
+    catch (e) { state.storageError = e.message; throw e; }
+  },
+  cancelUnknown: () => { state.success = false; state.booking = null; },
+  restore: booking => { state.booking = booking; state.success = true; },
+  booked: booking => completeBooking(booking, 'response'),
+  rejected: booking => {
+    try { bookingStore.finish(booking, 'rejected'); state.pendingBooking = null; }
+    catch (e) { state.storageError = e.message; throw e; }
+  },
+  reconcile: reconcileBooking
+});
+if (['cancel-unknown', 'booking-unknown', 'cancelled', 'booking'].includes(renewal.job?.phase)) {
+  state.success = false; state.booking = null;
+}
+const management = new BookingManagement(bookingStore, {
+  booking: () => state.booking,
+  token: () => loadConfig().token,
+  update: booking => { state.booking = booking; state.success = booking.outcome === 'success'; },
+  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError
+    || renewal.busy || !!renewal.error || ['cancel-unknown', 'booking-unknown'].includes(renewal.job?.phase),
+  stopRenewal: () => { if (renewal.job?.active) renewal.stop(); },
+  records: () => fetchOwnReservations(loadConfig()),
+  current: async () => {
+    const r = await api('/v4/index/subscribe', {}, loadConfig().token, false, { priority: 'high' });
+    if (r?.code !== 0 || !Array.isArray(r.data)) throw Error('无法读取官网当前座位信息');
+    return r.data;
+  },
+  // Official AppointmentItem: cancel({id}); leave/checkout({id, points}) with AES.
+  send: (action, body, beforeSend) => api('/v4/space/' + action, body, loadConfig().token, action !== 'cancel', { priority: 'high', beforeSend })
+});
+setInterval(() => renewal.tick().catch(e => log('定时重约停止：' + e.message, 'error')), 5000);
+
 function log(msg, level) {
   const line = '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] ' + msg;
   state.logs.push({ t: Date.now(), msg: line, level: level || 'info' });
@@ -582,11 +678,16 @@ function log(msg, level) {
  * ============================================================ */
 const loginState = {
   active: false,
+  mode: '',
+  startedAt: 0,
   hint: '',
   elapsed: 0,
   error: '',
   tokenOk: false
 };
+let loginTask = null;
+let loginController = null;
+let manualLoginStarting = false;
 const PROFILE_DIR = path.join(ROOT, 'browser-data');
 const COOKIE_FILE = path.join(ROOT, 'browser-data', 'cookies.json');
 
@@ -617,46 +718,58 @@ async function saveCookiesSnapshot() {
  *   allowHeaded    静默失败后是否弹出可见浏览器等待人工登录
  *   maxWaitSec     有头模式最长等待秒数
  */
-async function runLoginFlow(opts) {
+function runLoginFlow(opts) {
   opts = opts || {};
-  if (loginState.active) return { ok: false, message: '已在登录流程中' };
+  if (loginState.active) return loginTask || Promise.resolve({ ok: false, message: '已在登录流程中' });
+  const controller = new AbortController();
+  loginController = controller;
+  const signal = controller.signal;
+  const maxWaitSec = Math.min(300, Math.max(30, Number(opts.maxWaitSec) || 300));
   loginState.active = true;
+  loginState.mode = opts.headlessFirst ? 'silent' : 'manual';
+  loginState.startedAt = Date.now();
   loginState.error = '';
   loginState.tokenOk = false;
   loginState.elapsed = 0;
   loginState.hint = '正在刷新登录态...';
 
-  const finish = async (result) => {
-    // 成功路径已经存过 cookie；这里再兜底存一次（含成功后新发的会话 cookie）
-    if (result && result.ok) await saveCookiesSnapshot();
-    // 无论成败都关掉调试浏览器，释放 profile 目录
-    await browserLogin.closeBrowser();
-    loginState.active = false;
-    return result;
-  };
+  const deadline = setTimeout(() => controller.abort(Error('登录流程超时，请重试')), (opts.allowHeaded === false ? 75 : maxWaitSec + 90) * 1000);
 
   // 启动浏览器后恢复上次保存的 cookie（CASTGC 是会话 cookie，必须手动注入）
   const launchAndRestore = async (headless) => {
-    browserLogin.launchBrowser(PROFILE_DIR, { headless: headless });
+    signal.throwIfAborted();
+    loginState.mode = headless ? 'silent' : 'manual';
+    loginState.hint = headless ? '正在启动后台登录检查…' : '正在打开学校登录窗口…';
+    browserLogin.launchBrowser(PROFILE_DIR, { headless, startBlank: true });
+    if (browserLogin.waitForReady) await browserLogin.waitForReady(signal);
+    signal.throwIfAborted();
     const saved = loadSavedCookies();
     if (saved && saved.length) {
-      await browserLogin.setAllCookies(saved);
-      log('已恢复上次保存的登录 cookie（' + saved.length + ' 条）');
+      const restored = await browserLogin.setAllCookies(saved, signal);
+      if (restored) log('已恢复上次保存的登录 cookie（' + saved.length + ' 条）');
+      else log('旧登录会话未能恢复，将打开学校登录页重新认证。', 'warn');
     }
+    signal.throwIfAborted();
+    // Restore cookies before the first navigation, otherwise the CAS redirect
+    // races restoration and may get stuck on a login page in a hidden browser.
+    if (browserLogin.openSite) await browserLogin.openSite(signal);
   };
 
+  loginTask = (async () => {
   try {
     // 清掉可能残留的调试浏览器实例（避免端口/占用冲突）
     await browserLogin.closeBrowser();
+    signal.throwIfAborted();
 
     /* ---- 第 1 步：无头静默刷新 ---- */
     if (opts.headlessFirst) {
+      let silentResult;
       try {
         await launchAndRestore(true);
-        const r = await browserLogin.waitForToken(45000, (info) => {
-          loginState.elapsed = info.elapsed;
+        const r = silentResult = await browserLogin.waitForToken(45000, (info) => {
           loginState.hint = '静默刷新登录态中...' + (info.hint || '');
-        });
+        }, { signal, headless: true });
+        signal.throwIfAborted();
         if (r && r.ok) {
           const cfg = loadConfig();
           cfg.token = r.token;
@@ -664,15 +777,15 @@ async function runLoginFlow(opts) {
           loginState.tokenOk = true;
           loginState.hint = '登录态已自动续期（静默）';
           log('已自动续期登录态（静默模式，无需手动操作）', 'success');
-          return finish({ ok: true, silent: true });
+          return { ok: true, silent: true };
         }
-      } catch (e) { /* 落入有头流程 */ }
+      } catch (e) { signal.throwIfAborted(); silentResult = { message: e.message }; }
       await browserLogin.closeBrowser();
 
       if (opts.allowHeaded === false) {
-        loginState.error = '静默刷新失败（CAS 登录也已过期），需要手动登录一次';
+        loginState.error = silentResult?.message || '后台登录检查未成功，请点击“打开登录窗口”完成认证。';
         log(loginState.error, 'error');
-        return finish({ ok: false, needManual: true });
+        return { ok: false, needManual: !!silentResult?.needManual };
       }
     }
 
@@ -680,9 +793,10 @@ async function runLoginFlow(opts) {
     loginState.hint = '已打开浏览器窗口，若未自动登录请在窗口中完成登录...';
     await launchAndRestore(false);
     const result = await browserLogin.waitForToken(
-      (opts.maxWaitSec || 300) * 1000,
-      (info) => { loginState.elapsed = info.elapsed; loginState.hint = info.hint; }
+      maxWaitSec * 1000,
+      (info) => { loginState.hint = info.hint; }, { signal, headless: false }
     );
+    signal.throwIfAborted();
 
     if (result && result.ok) {
       const cfg = loadConfig();
@@ -691,17 +805,32 @@ async function runLoginFlow(opts) {
       loginState.tokenOk = true;
       loginState.hint = '登录态已获取并保存';
       log('自动获取登录态成功，token 已保存', 'success');
-      return finish({ ok: true });
+      return { ok: true };
     }
 
     loginState.error = (result && result.message) || '未获取到登录态';
     log('自动获取登录态失败: ' + loginState.error, 'error');
-    return finish({ ok: false });
+    return { ok: false };
   } catch (e) {
     loginState.error = e.message;
     log('自动登录异常: ' + e.message, 'error');
-    return finish({ ok: false });
+    return { ok: false };
+  } finally {
+    clearTimeout(deadline);
+    loginState.hint = loginState.tokenOk ? '登录成功，正在保存浏览器会话…' : '正在结束本次登录等待…';
+    try {
+      if (loginState.tokenOk) await saveCookiesSnapshot();
+      await browserLogin.closeBrowser();
+    } catch (e) { log('登录窗口清理未完成：' + e.message, 'warn'); }
+    finally {
+      loginState.elapsed = Math.round((Date.now() - loginState.startedAt) / 1000);
+      loginState.active = false;
+      loginState.mode = '';
+      loginState.hint = loginState.tokenOk ? '登录态已获取并保存' : loginState.error;
+    }
   }
+  })();
+  return loginTask;
 }
 
 /** 校验当前 token 是否有效。返回 true / false（网络异常返回 null，不当成失效） */
@@ -753,7 +882,8 @@ async function runOnce(cfg, date) {
   }
 
   const all = (pick.data && pick.data.area) || [];
-  const targets = all.filter(a => cfg.areaIds.includes(String(a.id)));
+  const selectedIds = selectedAreaIds(cfg);
+  const targets = all.filter(a => selectedIds.includes(String(a.id)));
   state.lastAreas = targets.map(a => ({
     id: a.id, name: a.nameMerge || a.name,
     free: Number(a.free_num), total: Number(a.total_num)
@@ -770,25 +900,38 @@ async function runOnce(cfg, date) {
     + '　[方案：' + (planName || (seatPrefs.normalizePrefs(cfg.seatPrefs).length ? '未命名' : '未设置'))
     + ' · 心仪区：' + prefAreaTxt + ']');
 
-  // 心仪区域：设了就在这些区里找（按设置顺序），否则所有目标区
-  const prefAreas = (cfg.preferAreas || []).map(String);
-  let scope = targets;
-  if (prefAreas.length) {
-    scope = targets
-      .filter(a => prefAreas.indexOf(String(a.id)) !== -1)
-      .sort((x, y) => prefAreas.indexOf(String(x.id)) - prefAreas.indexOf(String(y.id)));
-    if (!scope.length) {
-      log('心仪区域不在当前目标区域内（请到界面把该区加入目标），本轮跳过', 'warn');
-      return {};
-    }
+  const missing = selectedIds.filter(id => !targets.some(a => String(a.id) === id));
+  if (missing.length) {
+    state.lastFailure = '部分抢选区域未返回数据：' + missing.map(id => cfg.areaNames?.[id] || id).join('、');
+    log(state.lastFailure, 'warn');
   }
-
-  const withFree = scope.filter(a => Number(a.free_num) > 0);
+  // Rotate the scan origin between rounds; list order is never a preference.
+  const scope = targets.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const offset = scope.length ? state.areaCursor++ % scope.length : 0;
+  const withFree = [...scope.slice(offset), ...scope.slice(0, offset)].filter(a => Number(a.free_num) > 0);
   if (!withFree.length) return {};
 
   // 2. 有空位 -> 拉座位明细
+  let invalidTimeFailure = '';
   for (const area of withFree) {
-    const seatRes = await fetchSeats(cfg, area.id, date);
+    if (state.stopFlag) return {};
+    let bookedWindow, seatRes;
+    try {
+      if (!cfg.verifyOnly) {
+        const map = await fetchSpaceMap(cfg, area.id, date);
+        if (map.code === 10001) return { fatal: true };
+        if (map.code !== 0) throw Error(map.message || '无法读取官网预约规则');
+        bookedWindow = resolveBookingRule(map.data, cfg, date, effectiveWindow(cfg, 'book'));
+        log((area.nameMerge || area.name) + '：' + (bookedWindow.reserveType === '1' ? '官网整段预约 ' : '预约时段 ')
+          + bookedWindow.start + '–' + bookedWindow.end);
+      }
+      if (state.stopFlag) return {};
+      seatRes = await fetchSeats(cfg, area.id, date, undefined, bookedWindow);
+    } catch (e) {
+      state.lastFailure = (area.nameMerge || area.name) + '：' + e.message;
+      log(state.lastFailure + '；继续检查其他抢选区域。', 'warn');
+      continue;
+    }
     if (seatRes.code === 10001) { log('登录已失效，请更新 token', 'error'); return { fatal: true }; }
     if (seatRes.code !== 0) {
       log('拉取座位失败(' + (area.nameMerge || area.name) + '): ' + (seatRes.message || ''), 'warn');
@@ -807,14 +950,16 @@ async function runOnce(cfg, date) {
     }
 
     // 按心仪座位优先级生成候选顺序
-    const prefs = seatPrefs.normalizePrefs(cfg.seatPrefs);
-    const candidates = orderCandidates(cfg, freeSeats);
+    const localPref = seatPrefs.areaPreference(cfg, area.id);
+    const prefs = localPref.seats;
+    const candidates = orderCandidates(cfg, freeSeats, area.id);
     const prefHit = candidates.filter(c => c.pref);
 
     if (prefs.length) {
       log('心仪座位（' + (area.nameMerge || area.name) + '）可约情况：'
         + (prefHit.length ? prefHit.map(c => c.seat.no).join(', ') : '暂无可约'),
         prefHit.length ? 'hit' : 'warn');
+      if (!prefHit.length && localPref.mode === 'prefer') log('优先座位暂无空位，尝试本区域其他空闲座位。');
     }
 
     if (!candidates.length) {
@@ -833,14 +978,16 @@ async function runOnce(cfg, date) {
       return { hit: true, seats: candidates.map(c => c.seat.no) };
     }
 
-    // 依次尝试候选（最多 3 个），成功即止
-    for (const cand of candidates.slice(0, 3)) {
+    // Try all available preferences, then up to three other seats from this area.
+    // Preferred seats lost in a race must not exhaust the fallback attempt budget.
+    const attempts = [...candidates.filter(c => c.pref), ...candidates.filter(c => !c.pref).slice(0, 3)];
+    for (const cand of attempts) {
       if (state.stopFlag) return {};
       const seat = cand.seat;
-      log('尝试预约座位 ' + seat.no + (cand.pref ? '（心仪座位，优先级 ' + (prefs.indexOf(String(seat.no).toUpperCase()) + 1) + '）' : '（任意空闲）') + ' ...', 'info');
-      const bookedWindow = effectiveWindow(cfg, 'book');
+      log('尝试预约座位 ' + seat.no + (cand.pref ? '（心仪座位）' : '（任意空闲）') + ' ...', 'info');
       const booking = {
         id: crypto.randomUUID(), seat: String(seat.no), seatId: String(seat.id),
+        areaId: String(area.id), reserveType: bookedWindow.reserveType, segment: bookedWindow.segment,
         area: area.nameMerge || area.name || String(area.id),
         date: date, startTime: bookedWindow.start, endTime: bookedWindow.end,
         bookedAt: new Date().toISOString()
@@ -860,6 +1007,7 @@ async function runOnce(cfg, date) {
       state.orderResult = order;
 
       if (order && order.code === 0) {
+        state.lastFailure = '';
         completeBooking(booking, 'response');
         return { done: true, seat: seat.no, area: area.nameMerge || area.name };
       }
@@ -872,9 +1020,18 @@ async function runOnce(cfg, date) {
       try { bookingStore.finish(booking, 'rejected'); state.pendingBooking = null; }
       catch (e) { state.storageError = e.message; return { halt: true }; }
 
-      log('预约失败：' + (order.message || JSON.stringify(order).slice(0, 150)), 'error');
+      state.lastFailure = '座位 ' + seat.no + ' 预约失败：' + (order.message || '错误码 ' + order.code);
+      log(state.lastFailure, 'error');
       if (order.code === 10001) return { fatal: true };
+      if (/未选择或申请时间错误/.test(order.message || '')) {
+        invalidTimeFailure = state.lastFailure;
+        break; // Another area may use different rules; finish checking the list first.
+      }
     }
+  }
+  if (invalidTimeFailure) {
+    state.stopReason = invalidTimeFailure + '。其他抢选区域也未预约成功，任务已停止，请核对官网预约规则。';
+    return { halt: true };
   }
   return {};
 }
@@ -885,11 +1042,13 @@ async function engineLoop(cfg) {
   state.stopFlag = false;
   state.success = false;
   state.orderResult = null;
+  state.lastFailure = '';
+  state.areaCursor = 0;
   state.booking = null;
   state.stopReason = '';
 
   log('===== 开始抢座 =====');
-  log('目标区域：' + cfg.areaIds.map(id => cfg.areaNames[id] || id).join('、'));
+  log('抢选区域（无优先级，有空位即尝试）：' + selectedAreaIds(cfg).map(id => cfg.areaNames[id] || id).join('、'));
   log('目标日期：' + date + (cfg.dateMode === 'tomorrow' ? '（次日）' : '（当日）'));
   if (cfg.timeMode === 'now') {
     log('查询方式：实时同步（' + windowLabel(cfg) + '）');
@@ -915,10 +1074,9 @@ async function engineLoop(cfg) {
   }
 
   // 开跑前先确保登录态可用（过期会自动静默刷新）
-  const startPrefs = seatPrefs.normalizePrefs(cfg.seatPrefs);
   const startAreas = (cfg.preferAreas || []).map(String);
   log('心仪方案：' + (activePlanName(cfg) || '未命名')
-    + '　座位 ' + (startPrefs.length ? startPrefs.join(', ') : '（未指定座位，抢区域内任意空位）')
+    + '　座位按各区域偏好选择，优先座位不可约时尝试本区其他空位'
     + '　心仪区 ' + (startAreas.length ? startAreas.map(id => (cfg.areaNames || {})[id] || id).join('、') : '（全部目标区）'));
 
   const ready = await ensureToken(cfg, { allowHeaded: true });
@@ -938,7 +1096,7 @@ async function engineLoop(cfg) {
     // 顺带解决"看门狗在后台刷新了 token，而循环还拿着旧 token"的问题
     const live = loadConfig();
     const date = targetDate(live);
-    if (!live.verifyOnly) {
+    if (!live.verifyOnly && live.timeMode === 'custom') {
       const invalid = validateBookingWindow(live, date, effectiveWindow(live, 'book'));
       if (invalid) { state.stopReason = invalid; log('任务停止：' + invalid, 'error'); break; }
     }
@@ -1029,7 +1187,8 @@ function serveStatic(res, urlPath) {
     const ext = path.extname(name).toLowerCase();
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600'
+      // Code must be revalidated together with HTML after an application update.
+      'Cache-Control': ['.html', '.js', '.css', '.webmanifest'].includes(ext) ? 'no-cache' : 'public, max-age=3600'
     });
     res.end(data);
   });
@@ -1135,6 +1294,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     cfg.seatPrefs = seatPrefs.normalizePrefs(plan.seats);
+    cfg.areaSeatPrefs = areaSeatPrefs.snapshot(plan.areas, plan.areaSeatPrefs);
     if (plan.mode) cfg.seatPrefMode = plan.mode;
     if (Array.isArray(plan.areas)) cfg.preferAreas = plan.areas.map(String);
     if (plan.dateMode) cfg.dateMode = plan.dateMode;
@@ -1161,6 +1321,8 @@ const server = http.createServer(async (req, res) => {
       if (next) {
         cfg.activePlanId = String(next.id);
         cfg.seatPrefs = seatPrefs.normalizePrefs(next.seats);
+        cfg.preferAreas = (next.areas || []).map(String);
+        cfg.areaSeatPrefs = areaSeatPrefs.snapshot(next.areas, next.areaSeatPrefs);
         if (next.mode) cfg.seatPrefMode = next.mode;
         switchedTo = next.name || next.id;
       } else {
@@ -1175,8 +1337,28 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---- 保存配置 ----
+  if (p === '/api/area-seat-preferences' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const id = String(body.areaId || '');
+      if (!body.preference) throw Error('请提供座位偏好');
+      const normalized = areaSeatPrefs.normalizeMap({ [id]: body.preference });
+      const cfg = loadConfig();
+      cfg.areaSeatPrefs = { ...cfg.areaSeatPrefs, ...normalized };
+      saveConfig(cfg);
+      log('已保存 ' + ((cfg.areaNames || {})[id] || id) + ' 的座位偏好：' + areaSeatPrefs.summary(normalized[id]));
+      return sendJson(res, { ok: true, config: publicConfig(cfg) });
+    } catch (e) { return sendJson(res, { ok: false, message: e.message }); }
+  }
   if (p === '/api/config' && req.method === 'POST') {
     const body = await readBody(req);
+    try {
+      if (Object.hasOwn(body, 'areaSeatPrefs')) body.areaSeatPrefs = areaSeatPrefs.normalizeMap(body.areaSeatPrefs);
+      if (Object.hasOwn(body, 'seatPlans')) {
+        if (!Array.isArray(body.seatPlans)) throw Error('方案列表无效');
+        body.seatPlans = body.seatPlans.map(plan => ({ ...plan, areaSeatPrefs: areaSeatPrefs.snapshot(plan.areas, plan.areaSeatPrefs) }));
+      }
+    } catch (e) { return sendJson(res, { ok: false, message: e.message }); }
     const cfg = loadConfig();
     Object.keys(body).forEach(k => { if (k in DEFAULT_CONFIG) cfg[k] = body[k]; });
     saveConfig(cfg);
@@ -1187,16 +1369,33 @@ const server = http.createServer(async (req, res) => {
   // ---- 自动登录：弹出浏览器让用户登录，自动抓取 token ----
   if (p === '/api/auto-login' && req.method === 'POST') {
     const body = await readBody(req);
-    if (loginState.active) return sendJson(res, { ok: false, message: '已在等待登录中' });
-    runLoginFlow({ headlessFirst: body.headlessFirst !== false, allowHeaded: true, maxWaitSec: body.maxWaitSec || 300 });
+    if (manualLoginStarting) return sendJson(res, { ok: true, message: '正在打开登录窗口' });
+    if (loginState.active && loginState.mode === 'manual') {
+      browserLogin.focusLogin?.().catch(() => {});
+      return sendJson(res, { ok: true, message: '请在已打开的学校窗口完成登录，或先停止等待再重试' });
+    }
+    manualLoginStarting = true;
+    try {
+      if (loginState.active) {
+        loginController?.abort(Error('已切换到手动登录'));
+        await loginTask;
+      }
+      runLoginFlow({ headlessFirst: false, allowHeaded: true, maxWaitSec: body.maxWaitSec || 300 });
+      return sendJson(res, { ok: true });
+    } finally { manualLoginStarting = false; }
+  }
+
+  if (p === '/api/login-cancel' && req.method === 'POST') {
+    if (loginState.active) loginController?.abort(Error('已停止等待登录，可重新打开登录窗口'));
     return sendJson(res, { ok: true });
   }
 
   if (p === '/api/login-status' && req.method === 'GET') {
     return sendJson(res, {
       active: loginState.active,
+      mode: loginState.mode,
       hint: loginState.hint,
-      elapsed: loginState.elapsed,
+      elapsed: loginState.active ? Math.round((Date.now() - loginState.startedAt) / 1000) : loginState.elapsed,
       error: loginState.error,
       tokenOk: loginState.tokenOk
     });
@@ -1315,12 +1514,14 @@ const server = http.createServer(async (req, res) => {
 
   // ---- 选座图：某区域的座位布局 + 实时状态 + 楼层底图 ----
   if (p === '/api/seats' && req.method === 'POST') {
-    const cfg = loadConfig();
+    let cfg = loadConfig();
     if (!cfg.token) return sendJson(res, { ok: false, message: '请先填写 token' });
     const body = await readBody(req);
     const areaId = String(body.areaId || cfg.areaIds[0] || '');
+    const own = body.bookingId && state.success && state.booking?.id === body.bookingId ? state.booking : null;
+    if (own) cfg = { ...cfg, dateMode: own.date === targetDate({ dateMode: 'today' }) ? 'today' : 'tomorrow' };
     try {
-      const date = targetDate(cfg);
+      const date = own?.date || targetDate(cfg);
       const w = effectiveWindow(cfg, 'view');
 
       const [sr, mr] = await Promise.all([
@@ -1334,7 +1535,7 @@ const server = http.createServer(async (req, res) => {
       const list = (sr.data && sr.data.list) || [];
       const mapData = (mr && mr.data) || {};
 
-      const prefs = seatPrefs.normalizePrefs(cfg.seatPrefs);
+      const prefs = seatPrefs.areaPreference(cfg, areaId).seats;
       const exist = new Set(list.map(s => String(s.no).toUpperCase()));
 
       // 可选区域：配置里的目标区 + 地图接口给出的同层其它区
@@ -1413,6 +1614,27 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---- 开始 / 停止 ----
+  if (p.startsWith('/api/renewal/')) {
+    try {
+      if (req.method !== 'POST') return sendJson(res, { ok: false, message: '请使用 POST' });
+      if (req.headers.origin && req.headers.origin !== 'http://' + req.headers.host) return sendJson(res, { ok: false, message: '请求来源不匹配' });
+      const body = await readBody(req);
+      if (p === '/api/renewal/start') await renewal.start(body);
+      else if (p === '/api/renewal/stop') renewal.stop();
+      else if (p === '/api/renewal/check') await renewal.check();
+      else return sendJson(res, { ok: false, message: '未知定时重约操作' });
+      return sendJson(res, { ok: true, renewal: renewal.status() });
+    } catch (e) { return sendJson(res, { ok: false, message: e.message, renewal: renewal.status() }); }
+  }
+  if (['/api/booking-state', '/api/booking-action'].includes(p) && req.method === 'POST') {
+    if (req.headers?.origin && req.headers.origin !== 'http://' + req.headers.host) return sendJson(res, { ok: false, message: '请求来源不匹配' });
+    try {
+      const body = await readBody(req);
+      if (p === '/api/booking-state') await management.refresh(true);
+      else await management.act(body);
+      return sendJson(res, { ok: true, bookingManagement: management.status() });
+    } catch (e) { return sendJson(res, { ok: false, message: e.message, bookingManagement: management.status() }); }
+  }
   if (p === '/api/bookings' && req.method === 'GET') {
     return sendJson(res, { ok: true, history: bookingStore.data.history });
   }
@@ -1447,7 +1669,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/start' && req.method === 'POST') {
     const body = await readBody(req);
+    if (management.blocked()) return sendJson(res, { ok: false, message: '预约操作进行中或结果待核实，请先刷新预约状态' });
     if (state.running) return sendJson(res, { ok: false, message: '已在运行中' });
+    if (renewal.blocksBooking() && renewal.job?.phase !== 'armed') return sendJson(res, { ok: false, message: '定时重约计划正在管理预约，请先停止或核实计划' });
+    if (renewal.busy || renewal.error) return sendJson(res, { ok: false, message: renewal.error || '定时重约操作进行中，请稍后再试' });
     if (state.pendingBooking || bookingStore.data.pending) return sendJson(res, { ok: false, message: '上一笔预约结果待确认，请先核实，避免重复预约' });
     if (state.storageError) return sendJson(res, { ok: false, message: state.storageError });
     const cfg = loadConfig();
@@ -1464,10 +1689,11 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { ok: false, message: '请设置有效时段，结束时间必须晚于开始时间' });
     }
     if (!cfg.token && cfg.autoRefresh === false) return sendJson(res, { ok: false, message: '请先填写并校验 token' });
-    if (!cfg.verifyOnly) {
+    if (!cfg.verifyOnly && cfg.timeMode === 'custom') {
       const invalid = validateBookingWindow(cfg, targetDate(cfg), effectiveWindow(cfg, 'book'));
       if (invalid) return sendJson(res, { ok: false, message: invalid });
     }
+    if (renewal.job?.active && (cfg.verifyOnly || cfg.dateMode !== 'today')) return sendJson(res, { ok: false, message: '等待接管的定时重约计划需要今天的实际预约，请关闭观察模式或停止计划' });
     saveConfig(cfg);
     state.logs = [];
     engineLoop(cfg).catch(e => {
@@ -1479,23 +1705,28 @@ const server = http.createServer(async (req, res) => {
 
   if (p === '/api/stop' && req.method === 'POST') {
     state.stopFlag = true;
+    try { renewal.stop(); } catch (e) { return sendJson(res, { ok: false, message: e.message }); }
     return sendJson(res, { ok: true });
   }
 
   // ---- 状态 / 日志 ----
   if (p === '/api/status' && req.method === 'GET') {
+    if (state.success || bookingStore.data.pendingAction) management.refresh().catch(() => {});
     return sendJson(res, {
       running: state.running,
       success: state.success,
       lastCheck: state.lastCheck,
       areas: state.lastAreas,
       orderResult: state.orderResult,
+      lastFailure: state.lastFailure,
       booking: state.booking,
+      bookingManagement: management.status(),
       pendingBooking: state.pendingBooking,
       checkingBooking: state.checkingBooking,
       bookingMessage: state.bookingMessage,
       storageError: state.storageError,
       stopReason: state.stopReason || '',
+      renewal: renewal.status(),
       logs: state.logs.slice(-200)
     });
   }

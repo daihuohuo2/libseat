@@ -1,0 +1,42 @@
+/* Seat colors are shared by the map and its legend. */
+.seat-available { --seat-fill: #c5ebd2; --seat-edge: #65b886; --seat-ink: #205639; }
+.seat-reserved { --seat-fill: #ffe5a0; --seat-edge: #dbb34e; --seat-ink: #725414; }
+.seat-away { --seat-fill: #cee5ff; --seat-edge: #79afe1; --seat-ink: #275888; }
+.seat-occupied { --seat-fill: #e9e8e3; --seat-edge: #d5d5cd; --seat-ink: #767a72; }
+.seat-unknown { --seat-fill: #f6f5f1; --seat-edge: #babbb4; --seat-ink: #6d726b; }
+.seat-mine { --seat-fill: #c7463c; --seat-edge: #a82c26; --seat-ink: #ffffff; }
+#mapSeats .seat-mine { outline: 2px solid #c7463c55; outline-offset: 2px; z-index: 1; }
+
+#mapLegend { gap: 8px 18px; margin-top: 18px; min-height: 28px; font-size: 12px; color: #536054; }
+#mapLegend .item { gap: 7px; }
+#mapLegend .sw { width: 13px; height: 13px; border-radius: 4px; background: var(--seat-fill); border: 1px solid var(--seat-edge); }
+#mapLegend .cnt { color: #354b3d; font: 600 12px/1.2 system-ui, sans-serif; }
+.map-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
+.map-guide { margin: 0; font-size: 11px; color: #788176; }
+.map-zoom { display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #e3e6dd; border-radius: 8px; background: #fffefa; }
+.map-zoom button { display: grid; place-items: center; min-width: 28px; height: 26px; padding: 0 5px; background: transparent; border: 0; border-radius: 5px; color: #526750; font: 17px/1 system-ui, sans-serif; }
+.map-zoom button:hover:not(:disabled) { background: #edf2e9; }
+.map-zoom button:disabled { opacity: .35; }
+.map-zoom #btnMapReset { border-left: 1px solid #e3e6dd; border-radius: 0 5px 5px 0; margin-left: 4px; padding: 0 9px; font: 11px/1 "Segoe UI", "Microsoft YaHei", sans-serif; }
+#mapZoomValue { min-width: 36px; color: #687561; text-align: center; font: 11px/1 system-ui, sans-serif; }
+.map-panel #mapWrap {
+  flex: none; height: 410px; min-height: 280px; margin: 10px 0 17px;
+  overflow: auto; overscroll-behavior: contain; border: 1px solid #e3e6dc; border-radius: 12px;
+  background-color: #f8f9f4;
+  background-image: radial-gradient(#dce2d4 .65px, transparent .65px);
+  background-size: 14px 14px; scrollbar-width: thin; scrollbar-color: #c5cfc0 transparent;
+}
+#mapWrap:focus-visible { outline: 2px solid #4a8060; outline-offset: 3px; }
+#mapSeats { position: relative; inset: auto; min-width: 100%; min-height: 100%; }
+#mapSeats .seat {
+  border: 1px solid var(--seat-edge); border-radius: var(--seat-radius, 5px);
+  background: var(--seat-fill); color: var(--seat-ink); box-shadow: 0 1px 1px #263b2310;
+  font-family: system-ui, sans-serif; font-weight: 600; letter-spacing: -.25px;
+  cursor: default; transition: filter .12s ease, box-shadow .12s ease;
+}
+#mapSeats .seat::after { content: ''; position: absolute; left: 22%; right: 22%; bottom: 2px; height: 1px; background: var(--seat-edge); opacity: .65; }
+#mapSeats .seat:hover { outline: 2px solid var(--seat-ink); outline-offset: 2px; box-shadow: 0 3px 8px #263b2324; filter: brightness(1.03); z-index: 2; }
+#mapSeats .seat-unknown { border-style: dashed; }
+#mapEmpty { margin: 0; pointer-events: none; }
+@media (max-height: 900px) { .desktop-app .map-panel #mapWrap { height: 350px; } }
+@media (max-width: 650px) { .map-panel #mapWrap { height: 340px; } .map-guide { font-size: 10px; } }

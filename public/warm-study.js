@@ -1,5 +1,10 @@
 /* Warm study presentation; reservation requests stay in the existing application. */
 (() => {
+  const renewalPanel = document.querySelector('.renewal-panel');
+  const mapPanel = document.querySelector('.map-panel');
+  mapPanel.prepend(renewalPanel);
+  $('btnHelp').onclick = () => $('helpDialog').showModal();
+  $('btnCloseHelp').onclick = () => $('helpDialog').close();
   // Keep reservation history with the other records while preserving its handlers.
   if ($('bookingHistory')) $('logsPanel').insertBefore($('bookingHistory'), $('logs'));
   const tabs = [...document.querySelectorAll('[role="tab"]')];

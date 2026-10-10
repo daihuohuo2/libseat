@@ -1,0 +1,19 @@
+#btnAreaSeatPrefs { margin-top: 8px; }
+#grabList .chip { flex-wrap: wrap; }
+#grabList .seat-preference-edit { flex: 0 0 100%; text-align: left; font-size: 12px; line-height: 1.6; padding: 5px 8px; background: #edf2eb; color: var(--accent); border: 1px solid #d8e1d3; border-radius: 5px; }
+#seatPrefsDialog { width: min(660px, 94vw); max-height: 90vh; overflow: auto; }
+#seatPrefsDialog .section-caption { margin-bottom: 16px; }
+#seatPrefsDialog .label { margin-top: 14px; }
+#seatPrefInputs { border: 0; margin: 0; padding: 0; min-width: 0; }
+.seat-pref-entry { display: flex; gap: 8px; }
+.seat-pref-entry input { flex: 1; }
+.seat-pref-entry button { white-space: nowrap; }
+.seat-pref-summary { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 4px; gap: 8px; font-size: 13px; }
+#seatPrefSelection { max-height: 70px; overflow: auto; font-size: 12px; line-height: 1.7; color: var(--dim); overflow-wrap: anywhere; }
+.seat-pref-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 7px; max-height: 250px; overflow: auto; padding: 6px 3px; margin-top: 12px; }
+.seat-pref-grid .seat-pref-option { min-height: 38px; padding: 6px; background: #fff; border: 1px solid #d7ddd3; color: #47584b; font: 500 12px 'Segoe UI', sans-serif; }
+.seat-pref-grid .seat-pref-option[aria-pressed="true"] { background: #315f49; border-color: #315f49; color: #fff; box-shadow: inset 0 0 0 1px #fff6; }
+#seatPrefsDialog button:focus-visible { outline: 3px solid #adbd85; outline-offset: 2px; }
+#seatPrefMessage { color: var(--err); min-height: 22px; margin: 12px 0; }
+#seatPrefsDialog .btns { margin: 12px 0 0; }
+@media (max-width: 500px) { #seatPrefsDialog { padding: 18px; } .seat-pref-entry { flex-wrap: wrap; } .seat-pref-entry input { min-width: 180px; } }

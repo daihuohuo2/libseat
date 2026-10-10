@@ -26,6 +26,7 @@ let notificationTimer = null;
 let notificationPending = false;
 const activeNotifications = new Set();
 const claimedDesktopBookings = new Set();
+const seenRenewalNotices = new Set();
 let latestStatus = null;
 let trayState = '';
 let quitPending = false;
@@ -88,6 +89,26 @@ async function pollBooking() {
       const status = await response.json();
       latestStatus = status;
       updateTray(status);
+      const notice = status.renewal?.notice;
+      if (notice && !seenRenewalNotices.has(notice.id)) {
+        seenRenewalNotices.add(notice.id);
+        if (win) win.flashFrame(true);
+        const fallback = () => { focusWindow(); dialog.showMessageBox(win, {
+          type: notice.level === 'error' ? 'warning' : 'info', title: notice.title,
+          message: notice.message, buttons: ['知道了']
+        }).catch(() => {}); };
+        try {
+          if (!Notification.isSupported()) fallback();
+          else {
+            const notification = new Notification({ title: notice.title, body: notice.message, timeoutType: 'never' });
+            activeNotifications.add(notification);
+            notification.on('click', focusWindow);
+            notification.on('close', () => activeNotifications.delete(notification));
+            notification.on('failed', () => { activeNotifications.delete(notification); fallback(); });
+            notification.show();
+          }
+        } catch (_) { fallback(); }
+      }
       if (status.success && status.booking && !claimedDesktopBookings.has(status.booking.id)) {
         const claimResponse = await fetch(URL + 'api/notification-claim', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -179,6 +200,7 @@ function createWindow() {
 function updateTray(status) {
   if (!tray) return;
   const label = !status ? '连接中断' : status.pendingBooking ? '预约结果待确认'
+    : status.renewal?.active ? '定时重约中' : status.renewal?.phase?.includes('unknown') ? '重约结果待核实'
     : status.running ? '正在抢座' : status.success ? '已成功 · ' + status.booking?.seat : '已停止';
   if (trayState === label) return;
   trayState = label;
@@ -186,7 +208,7 @@ function updateTray(status) {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: label, enabled: false },
     { label: '显示窗口', click: focusWindow },
-    { label: '停止抢座', enabled: !!status?.running, click: async () => {
+    { label: '停止抢座与定时重约', enabled: !!(status?.running || status?.renewal?.active || status?.renewal?.busy), click: async () => {
       try {
         await fetch(URL + 'api/stop', { method: 'POST', signal: AbortSignal.timeout(5000) });
         await pollBooking();

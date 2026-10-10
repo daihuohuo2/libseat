@@ -2,6 +2,7 @@
  * 心仪座位候选排序（独立模块，便于单测）
  */
 'use strict';
+const areaPrefs = require('./public/area-seat-prefs.js');
 
 /** 规范化心仪座位列表：去空、大写、去重、保持用户填写的优先级顺序 */
 function normalizePrefs(list) {
@@ -59,4 +60,17 @@ function prefHits(cfg, freeSeats) {
   return orderCandidates(Object.assign({}, cfg, { seatPrefMode: 'only' }), freeSeats);
 }
 
-module.exports = { normalizePrefs, orderCandidates, prefHits };
+function areaPreference(cfg, areaId) {
+  return areaPrefs.normalize(cfg.areaSeatPrefs?.[String(areaId)]);
+}
+
+function orderAreaCandidates(cfg, areaId, freeSeats) {
+  const pref = areaPreference(cfg, areaId);
+  // New per-area preferences always fall back inside the same supplied seat list.
+  if (cfg.areaSeatPrefs !== undefined || cfg.preferAreas?.length) {
+    return orderCandidates({ seatPrefs: pref.mode === 'prefer' ? pref.seats : [], seatPrefMode: 'prefer' }, freeSeats);
+  }
+  return orderCandidates(cfg, freeSeats);
+}
+
+module.exports = { normalizePrefs, orderCandidates, prefHits, areaPreference, orderAreaCandidates };

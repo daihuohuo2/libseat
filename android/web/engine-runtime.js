@@ -3,6 +3,8 @@
   const modules = Object.create(null), cache = Object.create(null);
   window.defineModule = (name, factory) => { modules[name] = factory; };
   window.require = name => {
+    name = name.replace(/^node:/, '');
+    if (!modules[name] && modules[name + '.js']) name += '.js';
     if (cache[name]) return cache[name].exports;
     if (!modules[name]) throw Error('Unsupported module: ' + name);
     const module = cache[name] = { exports: {} };
@@ -78,9 +80,13 @@
   };
   window.androidDispatch = async (id, path, method, body) => {
     try {
-      if (!/^\/api\/[a-z-]+$/.test(path)) throw Error('Invalid API path');
+      if (!/^\/api\/(?:[a-z-]+|renewal\/(?:start|stop|check))$/.test(path)) throw Error('Invalid API path');
+      if (Native.isDemo() && path === '/api/demo-signin' && method === 'POST') {
+        const result = require('./android-demo.js').signIn();
+        Native.apiResult(id, 200, JSON.stringify(result)); return;
+      }
       let code = 200;
-      const req = { url: path, method, on(event, fn) {
+      const req = { url: path, method, headers: {}, on(event, fn) {
         if (event === 'data') queueMicrotask(() => fn(body || '{}'));
         if (event === 'end') queueMicrotask(fn);
       }, destroy() { throw Error('Request too large'); } };
@@ -89,9 +95,10 @@
   };
   defineModule('./browser-login.js', m => { m.exports = {
     launchBrowser(dir, opts) { Native.loginStart(!!opts.headless); },
-    async waitForToken(maxMs, onTick) {
+    async waitForToken(maxMs, onTick, opts = {}) {
       const started = Date.now();
       while (Date.now() - started < maxMs) {
+        opts.signal?.throwIfAborted();
         const r = JSON.parse(Native.loginRead());
         if (r.token) return { ok: true, token: r.token };
         if (r.error) return { ok: false, message: r.error };
@@ -105,7 +112,7 @@
   }; });
   window.androidCall = (path, body, method) => new Promise((resolve, reject) => {
     let code = 200;
-    const req = { url: path, method: method || (body ? 'POST' : 'GET'), on(event, fn) {
+    const req = { url: path, method: method || (body ? 'POST' : 'GET'), headers: {}, on(event, fn) {
       if (event === 'data') queueMicrotask(() => fn(JSON.stringify(body || {})));
       if (event === 'end') queueMicrotask(fn);
     } };
@@ -115,7 +122,7 @@
   });
   window.startAndroidEngine = () => {
     if (Native.isDemo() && !call('exists', '/data/config.json')) call('write', '/data/config.json', JSON.stringify({
-      token: 'android-demo', dateMode: 'tomorrow', timeMode: 'custom', startTime: '08:00', endTime: '10:00',
+      token: 'android-demo', dateMode: 'today', timeMode: 'now', startTime: '08:00', endTime: '10:00',
       verifyOnly: true, autoRefresh: false, areaIds: ['59','57'], preferAreas: ['59'],
       seatPlans: [{ id: 'demo-plan', name: '五楼安静自习', areas: ['59'], seats: [], mode: 'only' }], activePlanId: 'demo-plan'
     }));
@@ -126,6 +133,7 @@
       try {
         const s = await androidCall('/api/status');
         Native.status(JSON.stringify(s));
+        if (s.renewal?.notice) Native.renewalNotice(JSON.stringify(s.renewal.notice));
         if (s.success && s.booking && Native.notificationsAllowed()) {
           const result = await androidCall('/api/notification-claim', { id: s.booking.id, channel: 'desktop' });
           if (result.claimed) Native.bookingNotice(JSON.stringify(s.booking));

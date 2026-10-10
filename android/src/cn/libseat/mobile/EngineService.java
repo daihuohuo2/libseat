@@ -25,7 +25,8 @@ public class EngineService extends Service {
     final Map<Integer, Reply> replies = new HashMap<>();
     final List<Runnable> waiting = new ArrayList<>();
     WebView engine, login;
-    boolean ready, foreground, running, pendingBooking, checkingBooking;
+    boolean ready, foreground, running, pendingBooking, checkingBooking, renewing;
+    String taskText = "";
     volatile boolean demo;
     int sequence;
     volatile int generation;
@@ -73,11 +74,11 @@ public class EngineService extends Service {
         main.postDelayed(() -> { Reply r = replies.remove(id); if (r != null) r.done(504,"{\"ok\":false,\"message\":\"本地引擎响应超时\"}"); }, 45000);
     }
     void switchMode(boolean value, Runnable done) {
-        if (running || checkingBooking || pendingBooking) return;
+        if (running || checkingBooking || pendingBooking || renewing) return;
         dispatch("/api/status", "GET", "{}", (code, body) -> {
             try {
                 JSONObject s = new JSONObject(body);
-                if (s.optBoolean("running") || s.optBoolean("checkingBooking") || !s.isNull("pendingBooking")) return;
+                if (blocksModeSwitch(s)) return;
                 for (Runnable r : timers.values()) main.removeCallbacks(r); timers.clear();
                 for (HttpURLConnection c : requests.values()) network.execute(c::disconnect); requests.clear();
                 closeLogin(); engine.destroy(); engine = null;
@@ -86,6 +87,12 @@ public class EngineService extends Service {
                 createEngine(); done.run();
             } catch (JSONException e) { Log.e("LibseatEngine", "Mode switch failed"); }
         });
+    }
+    static boolean blocksModeSwitch(JSONObject s) {
+        JSONObject renewal=s.optJSONObject("renewal"), management=s.optJSONObject("bookingManagement");
+        return s.optBoolean("running") || s.optBoolean("checkingBooking") || !s.isNull("pendingBooking")
+            || (renewal!=null && (renewal.optBoolean("active") || renewal.optBoolean("busy") || renewal.optString("phase").endsWith("-unknown")))
+            || (management!=null && (management.optBoolean("busy") || management.optBoolean("checking") || !management.isNull("pendingAction")));
     }
     boolean notificationsAllowed() { return getSystemService(NotificationManager.class).areNotificationsEnabled(); }
     PendingIntent openIntent() { return PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE); }
@@ -166,7 +173,8 @@ public class EngineService extends Service {
         super.onDestroy();
     }
     File dataFile(String path) throws IOException {
-        if (!path.matches("/data/(config\\.json|bookings\\.json(?:\\.tmp)?|libseat\\.log|browser-data/cookies\\.json)")) throw new IOException("不允许访问此文件");
+        if (!path.matches("/data/(config\\.json|(?:bookings|renewal)\\.json(?:\\.tmp)?|libseat\\.log|browser-data/cookies\\.json)")
+            && !(demo && path.equals("/data/demo-records.json"))) throw new IOException("不允许访问此文件");
         File root=new File(getFilesDir(),demo?"demo":"real"); root.mkdirs();
         File f=new File(root,path.substring(6));
         if(!f.getCanonicalPath().startsWith(root.getCanonicalPath()+File.separator)) throw new IOException("Invalid path");
@@ -245,9 +253,30 @@ public class EngineService extends Service {
             try {
                 JSONObject s=new JSONObject(body); boolean wasRunning=running;
                 running=s.optBoolean("running"); pendingBooking=!s.isNull("pendingBooking"); checkingBooking=s.optBoolean("checkingBooking");
-                if(foreground && !running && !checkingBooking && System.currentTimeMillis()-foregroundSince>2500) leaveForeground();
+                JSONObject renewal=s.optJSONObject("renewal"), management=s.optJSONObject("bookingManagement");
+                renewing=renewal!=null && (renewal.optBoolean("active") || renewal.optBoolean("busy"));
+                boolean working=running || checkingBooking || renewing || (management!=null && management.optBoolean("busy"));
+                if(working && !foreground) {
+                    try { enterForeground(); }
+                    catch(Exception e) { dispatch("/api/stop","POST","{}",(c,b)->{}); notifyText("后台任务未启动","请回到应用，允许后台运行后重试。",3); }
+                }
+                if(foreground && working) {
+                    String text=renewing ? "定时重约 · 每 "+renewal.optInt("intervalMinutes",50)+" 分钟 · 可在此停止" : "正在检查座位，可点击返回应用";
+                    if(!text.equals(taskText)) { taskText=text; getSystemService(NotificationManager.class).notify(1,taskNotice(text)); }
+                }
+                if(foreground && !working && System.currentTimeMillis()-foregroundSince>2500) { leaveForeground(); taskText=""; }
                 if(wasRunning && !running && pendingBooking) notifyText("预约结果待确认", "已暂停抢座，请打开应用核实，避免重复预约。", 3);
                 else if(wasRunning && !running && !s.optBoolean("success")) notifyText("座位任务已停止", "请打开应用查看运行记录。", 3);
+            } catch(JSONException ignored) {}
+        }); }
+        @JavascriptInterface public void renewalNotice(String body) { post(()->{
+            try {
+                JSONObject n=new JSONObject(body); String id=n.optString("id");
+                android.content.SharedPreferences prefs=getSharedPreferences("mobile",MODE_PRIVATE);
+                String key=demo?"demoRenewalNotice":"realRenewalNotice";
+                if(!id.isEmpty() && !id.equals(prefs.getString(key,"")) && notificationsAllowed()) {
+                    notifyText(n.optString("title"),n.optString("message"),4); prefs.edit().putString(key,id).apply();
+                }
             } catch(JSONException ignored) {}
         }); }
         @JavascriptInterface public void bookingNotice(String body) { post(()->{
