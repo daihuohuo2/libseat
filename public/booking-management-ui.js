@@ -28,10 +28,11 @@
     $('bookingStatus').textContent = m?.label || '';
     $('bookingHint').textContent = (m?.tip ? m.tip + '。' : '') + (hints[kind] || hints.unknown);
     $('bookingActionMessage').textContent = feedback || m?.message || (m?.checking ? '正在刷新官网状态…' : '');
-    const locked = working || m?.busy || m?.checking || !!m?.pendingAction;
+    const stale = m?.bookingId && m.bookingId !== b.id;
+    const locked = working || stale || m?.busy || m?.checking || !!m?.pendingAction;
     for (const [action, name] of Object.entries(names)) {
       const button = $('bookingAction-' + action);
-      button.hidden = !m?.actions?.includes(action);
+      button.hidden = stale || !m?.actions?.includes(action);
       button.disabled = locked; button.textContent = name;
     }
     $('bookingRefresh').disabled = working || m?.busy || m?.checking;
@@ -47,7 +48,7 @@
       feedback = r.ok ? '' : r.message;
       if (r.bookingManagement) snapshot.bookingManagement = r.bookingManagement;
     } catch (e) { feedback = e.message; }
-    finally { working = false; render(snapshot); }
+    finally { working = false; render(snapshot); if (typeof tick === 'function') tick(); }
   }
   async function locationPoints() {
     // Match the official desktop flow (empty points); mobile can use real browser coordinates.

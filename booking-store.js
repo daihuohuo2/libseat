@@ -2,6 +2,15 @@
 const fs = require('fs');
 const path = require('path');
 
+// Reservation dates belong to the school's time zone, regardless of the device zone.
+function bookingEnded(booking, now = Date.now()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(booking?.date || '')) return false;
+  const midnight = Date.parse(booking.date + 'T00:00:00+08:00');
+  const end = /^([01]\d|2[0-3]):[0-5]\d$/.test(booking.endTime || '')
+    ? Date.parse(booking.date + 'T' + booking.endTime + ':00+08:00') : midnight + 86400000;
+  return Number.isFinite(end) && now >= end;
+}
+
 // Written before submitting an order, so a crash can never erase an uncertain request.
 class BookingStore {
   constructor(file) {
@@ -45,4 +54,4 @@ class BookingStore {
     return true;
   }
 }
-module.exports = { BookingStore };
+module.exports = { BookingStore, bookingEnded };

@@ -88,9 +88,11 @@ public class FlowTest extends Instrumentation {
             check(status.getJSONObject("renewal").getInt("cycles")==1,status.toString());
             check(!first.getString("id").equals(status.getJSONObject("booking").getString("id")),"renewal must create new identity");
             check(first.getString("seat").equals(status.getJSONObject("booking").getString("seat")),"renewal keeps the same seat");
+            until(page,"mapBookingStatus?.booking?.id==="+JSONObject.quote(status.getJSONObject("booking").getString("id"))+" && !tickPending");
             closeDialogs(); click("btnBookingDetails");
             until(page,"!document.getElementById('bookingAction-cancel').disabled && !document.getElementById('bookingAction-cancel').hidden"); click("bookingAction-cancel");
             until(page,"document.getElementById('bookingStatus').textContent==='已取消预约'");
+            until(page,"document.getElementById('bookingSummary').hidden");
             status=api("/api/status",null); check(!status.getBoolean("success") && !status.getJSONObject("renewal").getBoolean("active"),"manual cancel must stop renewal and release seat");
             until(page,"document.querySelectorAll('#mapSeats .seat-mine').length===0");
             book(); closeDialogs(); click("btnDemoSignIn");
@@ -105,7 +107,24 @@ public class FlowTest extends Instrumentation {
             closeDialogs(); click("btnHelp"); until(page,"document.getElementById('helpDialog').open");
             check(Boolean.TRUE.equals(js(page,"document.getElementById('helpDialog').getBoundingClientRect().width<=innerWidth")),"help fits mobile viewport");
             closeDialogs();
-            result.putString("stream","PASS: Android WebView + native bridge + persistent storage: map, grab, 30-minute renewal, foreground service, cancel stops renewal, signed status, leave, checkout, red seat lifecycle, mobile layout and help.\n");
+            // Login double and changing seat responses live only in the separate test APK.
+            js(engine,"Object.assign(require('./browser-login.js'),{launchBrowser(){},async closeBrowser(){},async waitForToken(){return {ok:true,token:'android-demo-refreshed'};}});window.testFree=true;(()=>{const m=require('./android-demo.js'),respond=m.respond;m.respond=function(p,b){const r=respond(p,b);if(p==='/v4/Space/seat')r.data.list[1].status=window.testFree?'1':'6';return r;};})();true");
+            api("/api/auto-login","{\"headlessFirst\":false}");
+            until(page,"lastLoginGeneration===1 && !fullRefreshPromise && document.querySelector('#mapSeats [data-no=XF5A002]').classList.contains('seat-available')");
+            js(engine,"window.testFree=false;true"); click("btnMapRefresh");
+            until(page,"!fullRefreshPromise && document.querySelector('#mapSeats [data-no=XF5A002]').classList.contains('seat-occupied')");
+            book(); closeDialogs();
+            js(engine,"window.flowNow=Date.parse('2026-10-11T08:00:00+08:00');true");
+            js(page,"window.flowNow=Date.parse('2026-10-11T08:00:00+08:00');lastResumeRefresh=0;true");
+            runOnMainSync(()->{activity.onPause();activity.onResume();});
+            until(page,"!fullRefreshPromise && document.getElementById('bookingSummary').hidden && document.getElementById('btnMySeat').hidden && lastMapData?.date==='2026-10-11'");
+            check(!api("/api/status",null).getBoolean("success"),"next-day resume clears expired success");
+            check(api("/api/bookings",null).getJSONArray("history").getJSONObject(0).getString("outcome").equals("completed"),"expired reservation remains in history");
+            check(Boolean.TRUE.equals(js(page,"document.querySelectorAll('#mapSeats .seat-mine').length===0 && getComputedStyle(document.getElementById('bookingSummary')).display==='none'")),"old booking banner and red seat must disappear");
+            check(Boolean.TRUE.equals(js(page,"document.getElementById('renewalTiming').textContent==='' && document.getElementById('renewalStatus').textContent==='' && document.getElementById('renewalEvents').textContent!=='暂无记录。'")),"stopped previous renewal is visible only in its history");
+            screenshot("mobile-refresh.png");
+            book(); check(api("/api/status",null).getJSONObject("booking").getString("date").equals("2026-10-11"),"can book again the following morning");
+            result.putString("stream","PASS: Android WebView map, grab, renewal, cancel, sign/leave/checkout, login refresh, manual refresh, next-day native resume, retained history and new booking.\n");
             finish(Activity.RESULT_OK,result);
         } catch(Throwable e) { result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(e)); finish(Activity.RESULT_CANCELED,result); }
     }

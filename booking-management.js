@@ -74,16 +74,18 @@ class BookingManagement {
       tip: result.tip, checkedAt: Date.now(), message: pending && !resolved ? '上次操作结果仍待确认，未重复发送。请稍后刷新或到官网核实。' : '' };
   }
   refresh(force = false) {
-    if (this.refreshPromise) return this.refreshPromise;
+    if (this.refreshPromise) return force ? this.refreshPromise.then(() => this.refresh(true)) : this.refreshPromise;
     const booking = this.deps.booking();
     if (!booking || this.busy || this.deps.unavailable() || !force && Date.now() - this.lastAttempt < 30000) return Promise.resolve(this.status());
     this.checking = true; this.lastAttempt = Date.now();
+    const token = this.deps.token();
     this.refreshPromise = (async () => {
       try {
         const result = await this.read(booking);
-        if (this.deps.booking()?.id === booking.id) this.apply(booking, result);
+        if (this.deps.booking()?.id === booking.id && this.deps.token() === token) this.apply(booking, result);
       } catch (e) {
-        this.view = { ...this.status(), bookingId: booking.id, actions: [], message: '刷新失败：' + e.message };
+        if (this.deps.booking()?.id === booking.id && this.deps.token() === token)
+          this.view = { ...this.status(), bookingId: booking.id, actions: [], message: '刷新失败：' + e.message };
       } finally { this.checking = false; this.refreshPromise = null; }
       return this.status();
     })();

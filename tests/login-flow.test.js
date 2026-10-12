@@ -28,6 +28,9 @@ test('login waits for browser, restores cookies before navigation, and unlocks o
   assert.equal((await f.run({ headlessFirst: false })).ok, true);
   assert.deepEqual(f.calls, ['close', 'launch-visible', 'ready', 'restore', 'navigate', 'save-cookies', 'close']);
   assert.equal(f.state().active, false); assert.equal(f.state().tokenOk, true); assert.equal(f.saved.length, 1);
+  assert.equal(f.state().generation, 1);
+  await f.run({ headlessFirst: true });
+  assert.equal(f.state().generation, 2, 'even a fast silent renewal signals a new session');
 });
 test('background CAS failure is explicit; no invented credential expiry on network failure', async () => {
   const f = fixture();

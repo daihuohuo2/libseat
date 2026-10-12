@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const browserLogin = require('./browser-login.js');
 const seatPrefs = require('./seat-prefs.js');
 const areaSeatPrefs = require('./public/area-seat-prefs.js');
-const { BookingStore } = require('./booking-store.js');
+const { BookingStore, bookingEnded } = require('./booking-store.js');
 const { validateBookingWindow } = require('./booking-window.js');
 const { selectedAreaIds, resolveBookingRule, resolveRenewalRule, validateSubmission, orderBody } = require('./booking-protocol.js');
 const { currentRecordsSource, recordsEndpoint, matchesRecord } = require('./reservation-records.js');
@@ -657,7 +657,24 @@ const management = new BookingManagement(bookingStore, {
   // Official AppointmentItem: cancel({id}); leave/checkout({id, points}) with AES.
   send: (action, body, beforeSend) => api('/v4/space/' + action, body, loadConfig().token, action !== 'cancel', { priority: 'high', beforeSend })
 });
-setInterval(() => renewal.tick().catch(e => log('定时重约停止：' + e.message, 'error')), 5000);
+function expireBooking() {
+  const booking = state.booking;
+  // An uncertain submission/action must still be reconciled, never silently discarded.
+  if (!state.success || !bookingEnded(booking) || state.pendingBooking || state.checkingBooking
+      || state.running || management.blocked() || renewal.busy) return;
+  const ended = { ...booking, outcome: 'completed', remoteState: 'completed', endedBy: 'time' };
+  state.booking = ended; state.success = false;
+  management.view = null;
+  try {
+    bookingStore.write({ ...bookingStore.data,
+      history: [ended, ...bookingStore.data.history.filter(b => b.id !== ended.id)].slice(0, 50) });
+  } catch (e) { state.storageError = '保存预约结束状态失败：' + e.message; }
+}
+expireBooking();
+setInterval(() => {
+  expireBooking();
+  renewal.tick().catch(e => log('定时重约停止：' + e.message, 'error'));
+}, 5000);
 
 function log(msg, level) {
   const line = '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] ' + msg;
@@ -683,13 +700,14 @@ const loginState = {
   hint: '',
   elapsed: 0,
   error: '',
-  tokenOk: false
+  tokenOk: false,
+  generation: 0
 };
 let loginTask = null;
 let loginController = null;
 let manualLoginStarting = false;
-const PROFILE_DIR = path.join(ROOT, 'browser-data');
-const COOKIE_FILE = path.join(ROOT, 'browser-data', 'cookies.json');
+const PROFILE_DIR = process.env.LIBSEAT_PROFILE_DIR || path.join(ROOT, 'browser-data');
+const COOKIE_FILE = path.join(PROFILE_DIR, 'cookies.json');
 
 /** 读取已保存的 cookie 快照 */
 function loadSavedCookies() {
@@ -775,6 +793,7 @@ function runLoginFlow(opts) {
           cfg.token = r.token;
           saveConfig(cfg);
           loginState.tokenOk = true;
+          loginState.generation = (loginState.generation || 0) + 1;
           loginState.hint = '登录态已自动续期（静默）';
           log('已自动续期登录态（静默模式，无需手动操作）', 'success');
           return { ok: true, silent: true };
@@ -803,6 +822,7 @@ function runLoginFlow(opts) {
       cfg.token = result.token;
       saveConfig(cfg);
       loginState.tokenOk = true;
+      loginState.generation = (loginState.generation || 0) + 1;
       loginState.hint = '登录态已获取并保存';
       log('自动获取登录态成功，token 已保存', 'success');
       return { ok: true };
@@ -1198,6 +1218,8 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const p = url.pathname;
 
+  if (p.startsWith('/api/')) expireBooking();
+
   // ---- 静态页面 / 资源（含 App 图标、PWA 清单） ----
   if ((req.method === 'GET' || req.method === 'HEAD') && !p.startsWith('/api/')) {
     return serveStatic(res, p);
@@ -1397,7 +1419,8 @@ const server = http.createServer(async (req, res) => {
       hint: loginState.hint,
       elapsed: loginState.active ? Math.round((Date.now() - loginState.startedAt) / 1000) : loginState.elapsed,
       error: loginState.error,
-      tokenOk: loginState.tokenOk
+      tokenOk: loginState.tokenOk && !(tokenExpiry(loadConfig().token) && tokenExpiry(loadConfig().token) <= Date.now() / 1000),
+      generation: loginState.generation
     });
   }
 

@@ -5,7 +5,10 @@ const file = '/data/demo-records.json';
 let rows = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
 const save = () => fs.writeFileSync(file, JSON.stringify(rows));
 const areas = [{ id: '59', name: 'A区' }, { id: '57', name: 'B区' }];
-const active = () => rows.find(r => ['9','3','32'].includes(r.status));
+const activeRow = r => ['9','3','32'].includes(r.status) && !require('./booking-store.js').bookingEnded({
+  date: r.endTime.slice(0, 10), endTime: r.endTime.slice(11, 16)
+});
+const active = () => rows.find(activeRow);
 const chinaTime = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(11,16);
 function seats(id) {
   return Array.from({ length: 48 }, (_, i) => {
@@ -30,7 +33,7 @@ module.exports = {
     if (path === '/v4/Space/map') return { code: 0, data: { name: body.id === '57' ? 'B区' : 'A区', name_merge: '演示馆-五楼-' + (body.id === '57' ? 'B区' : 'A区'), web_plane: '', brother_area: areas,
       type: '1', date: { reserveType: '1', list: [{ day: body.day, times: [{ id: 'demo-segment', status: 1, start: '08:00', end: '22:00' }] }] } } };
     if (path === '/v4/member/seat') return {code:0, data:{data:rows}};
-    if (path === '/v4/index/subscribe') return {code:0, data:rows.filter(r => ['9','3','32'].includes(r.status)).map(r => ({...r,type:'1',space_id:r.seat_id,
+    if (path === '/v4/index/subscribe') return {code:0, data:rows.filter(activeRow).map(r => ({...r,type:'1',space_id:r.seat_id,
       flag_out:r.status==='3'?1:0,flag_leave:r.status==='32'?1:0,SYS_WEB_MYYUYUE_RIGHTBACK:1,SYS_WEB_MYYUYUE_LEAVE:1}))};
     if (path === '/v4/space/confirm') {
       if (active()) return {code:1,message:'已有演示预约，请先取消或完全签离'};

@@ -11,14 +11,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- Versioned URLs also bypass caches left by older running servers. Keep in sync with sw.js. -->
-<link rel="stylesheet" href="/study-font.css?v=v0.2.0">
-<link rel="stylesheet" href="/warm-study.css?v=v0.2.0">
-<link rel="stylesheet" href="/desktop-study.css?v=v0.2.0">
-<link rel="stylesheet" href="/booking-celebration.css?v=v0.2.0">
-<link rel="stylesheet" href="/renewal.css?v=v0.2.0">
-<link rel="stylesheet" href="/seat-map.css?v=v0.2.0">
-<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.2.0">
-<link rel="stylesheet" href="/compact-ui.css?v=v0.2.0">
+<link rel="stylesheet" href="/study-font.css?v=v0.2.1">
+<link rel="stylesheet" href="/warm-study.css?v=v0.2.1">
+<link rel="stylesheet" href="/desktop-study.css?v=v0.2.1">
+<link rel="stylesheet" href="/booking-celebration.css?v=v0.2.1">
+<link rel="stylesheet" href="/renewal.css?v=v0.2.1">
+<link rel="stylesheet" href="/seat-map.css?v=v0.2.1">
+<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.2.1">
+<link rel="stylesheet" href="/compact-ui.css?v=v0.2.1">
 </head>
 <body>
 <header class="topbar">
@@ -49,7 +49,7 @@
       <p id="taskFeedback" class="hint" role="status" aria-live="polite"></p>
     </aside>
     <section class="map-panel surface" aria-label="实时座位地图">
-      <div class="map-heading"><div><h2 id="mapTitle">座位地图</h2><p id="mapSubtitle" class="section-caption">选择区域</p></div><div class="btns"><button id="btnMySeat" class="text-button" hidden>我的座位</button><button id="btnMapRefresh" class="text-button">刷新</button></div></div>
+      <div class="map-heading"><div><h2 id="mapTitle">座位地图</h2><p id="mapSubtitle" class="section-caption">选择区域</p></div><div class="btns"><button id="btnMySeat" class="text-button" hidden>我的座位</button><button id="btnMapRefresh" class="text-button" title="刷新预约、空位和座位地图">刷新座位</button></div></div>
       <div id="mapLegend" class="legend"></div>
       <div id="mapLoadHelp" class="warnbox" hidden role="status" style="margin-bottom:12px">
         <p id="mapLoadError"></p><div class="btns" style="margin-top:8px"><button id="btnMapLogin">重新登录</button><button id="btnMapRetry" class="ghost">重新加载</button><a href="https://libzw.csu.edu.cn/" target="_blank" rel="noopener" style="color:var(--accent)">打开学校预约官网</a></div>
@@ -93,7 +93,8 @@
   <h3>座位偏好</h3><p>支持逐个点选、输入编号或范围（如 149, 160–170），也可选择不限座位。优先座位不可用时，会尝试同一区域的其他空位。常用配置可以保存为方案。</p>
   <h3>定时重约</h3><p>选择当前预约或下次预约，填写今天的预计到馆时间，滑动选择 30～59 分钟的间隔后开启，默认 50 分钟。运行中先停止再修改。每次按实际预约时间重新计时，到馆时间到达或官网已签到时停止。</p><p>整段预约使用官网时段编号，结束时间仍以官网时段为准；自定义预约则按当前时间顺延。取消后座位可能被他人预约，签到期限以官网为准，接近 59 分钟时请留出网络处理时间。电脑需保持开机、联网且不休眠；手机版需允许后台运行。</p>
   <h3>我的座位与签离</h3><p>红色表示你的有效预约。点击“我的座位”可定位；悬停座位可看完整编号，地图支持缩放和滚动。未签到时可取消预约，签到后可临时签离或完全签离；临时签离须按时返回签到。</p>
-  <h3>状态与后台运行</h3><p>预约操作超时后请刷新核实，程序不会重复提交。详细配置和运行记录保留查询设置及诊断信息。桌面版关闭窗口后仍在托盘运行；需要退出时，右键托盘图标选择退出。</p>
+  <h3>状态与刷新</h3><p>预约结束后首页自动清除标记，历史记录保留。重新登录或返回应用时会同步最新状态；“刷新座位”可同时更新预约、空位和地图。预约操作超时后请刷新核实，程序不会重复提交。</p>
+  <h3>后台运行</h3><p>桌面版关闭窗口后仍在托盘运行；需要退出时，右键托盘图标选择退出。详细配置和运行记录中保留查询设置及诊断信息。</p>
 </dialog>
 <dialog id="accountDialog" aria-labelledby="accountTitle"><div class="section-heading"><h2 id="accountTitle">登录管理</h2><button class="text-button" id="btnCloseAccount">关闭</button></div><p class="section-caption">登录状态由程序自动维护；需要认证时请在学校窗口完成登录。</p><div class="btns"><button id="btnAuto">打开登录窗口</button><button id="btnVerify" class="outline">校验并刷新数据</button><button id="btnCancelLogin" class="ghost" hidden>停止等待</button></div><label class="chk"><input type="checkbox" id="autoRefresh" checked><span>登录过期时自动续期</span></label><p id="autoHint" class="hint" role="status" aria-live="polite"></p></dialog>
 
@@ -117,19 +118,20 @@
   <form method="dialog"><button autofocus>知道了</button></form>
   </div>
 </dialog>
-<script src="/booking-notifications.js?v=v0.2.0"></script>
-<script src="/booking-celebration.js?v=v0.2.0"></script>
-<link rel="stylesheet" href="/booking-management.css?v=v0.2.0">
-<script src="/booking-management-ui.js?v=v0.2.0"></script>
-<script src="/renewal-ui.js?v=v0.2.0"></script>
-<script src="/seat-map.js?v=v0.2.0"></script>
-<script src="/area-seat-prefs.js?v=v0.2.0"></script>
+<script src="/booking-notifications.js?v=v0.2.1"></script>
+<script src="/booking-celebration.js?v=v0.2.1"></script>
+<link rel="stylesheet" href="/booking-management.css?v=v0.2.1">
+<script src="/booking-management-ui.js?v=v0.2.1"></script>
+<script src="/renewal-ui.js?v=v0.2.1"></script>
+<script src="/seat-map.js?v=v0.2.1"></script>
+<script src="/area-seat-prefs.js?v=v0.2.1"></script>
 <script>
 const $ = id => document.getElementById(id);
 let polling = null;
 
 function api(path, body, method){
   return fetch(path, {
+    cache: 'no-store',
     method: method || (body ? 'POST' : 'GET'),
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -331,6 +333,7 @@ let treeData = null;
 let curPremise = '', curStorey = '', curArea = '', currentMapArea = '';
 let mapLoading = false, mapTick = 0;
 let mapInitPending = false, mapReady = false, mapRetryAt = 0, livePending = false;
+let dataRevision = 0, fullRefreshPromise = null, refreshAgain = false;
 let cfgCache = {};
 let lastMapData = null;
 let plans = [];              // 常用方案 [{ id, name, areas, dateMode, interval }]
@@ -373,11 +376,13 @@ function showMapError(error){
   mapRetryAt = Date.now() + 30000;
 }
 $('btnMapLogin').onclick = () => { if(!$('accountDialog').open) $('accountDialog').showModal(); autoLogin(); };
-$('btnMapRetry').onclick = () => mapReady ? loadSeatMap(curArea) : initMapBrowser(true);
+$('btnMapRetry').onclick = () => refreshAllSeats();
 
 /** ① 校区馆 → ② 楼层 → ③ 区域 */
 async function loadTree(){
+  const revision = dataRevision;
   const r = await api('/api/tree', {});
+  if(revision !== dataRevision) return false;
   if(!r.ok) throw mapRequestError(r, '获取楼层结构失败');
   treeData = r.tree || [];
   if(!treeData.length) throw new Error('学校接口未返回校区和楼层，请重新登录或稍后重试');
@@ -393,8 +398,10 @@ async function loadTree(){
 }
 
 async function loadAreasOfStorey(){
+  const revision = dataRevision;
   try{
   const r = await api('/api/areas-of-storey', { premiseId: curPremise, storeyId: curStorey });
+  if(revision !== dataRevision) return false;
   if(!r.ok) throw mapRequestError(r, '获取区域失败');
   const areas = r.areas || [];
   if(!areas.length) throw new Error('该楼层暂无可用区域，请切换楼层后重试');
@@ -404,6 +411,7 @@ async function loadAreasOfStorey(){
   curArea = $('selArea').value || curArea;
   return true;
   }catch(e){
+    if(revision !== dataRevision) return false;
     mapReady = false; curArea = '';
     selectMessage('selArea', e.code === 10001 ? '请重新登录' : '区域加载失败');
     showMapError(e);
@@ -616,7 +624,7 @@ function updateMapBooking(status) {
   if(!active) mapBookingView = '';
   const key = JSON.stringify([!!active, status.booking?.id, status.booking?.seatId, status.booking?.areaId]);
   if(key !== mapBookingKey) { mapBookingKey = key; if(lastMapData) renderSeatMap(lastMapData); }
-  if(active && status.booking.areaId && locatedBookingId !== status.booking.id && mapReady && !mapLoading && !locatingBooking) {
+  if(active && status.booking.areaId && locatedBookingId !== status.booking.id && mapReady && !fullRefreshPromise && !mapLoading && !locatingBooking) {
     locatedBookingId = status.booking.id;
     showMySeat();
   }
@@ -707,6 +715,7 @@ $('btnMapReset').onclick = () => { seatMapZoom = 1; renderSeatMap(lastMapData); 
 
 async function loadSeatMap(areaId){
   if(mapLoading) return false;
+  const revision = dataRevision;
   const targetArea = areaId || curArea;
   if(!targetArea) return false;
   mapLoading = true;
@@ -719,6 +728,7 @@ async function loadSeatMap(areaId){
     const b = mapBookingStatus?.booking;
     const bookingId = mapBookingView && b?.id === mapBookingView && (!b.areaId || String(b.areaId) === String(targetArea)) ? mapBookingView : undefined;
     const r = await api('/api/seats', { areaId: targetArea, bookingId });
+    if(revision !== dataRevision) return false;
     if(!r.ok) throw mapRequestError(r, '加载失败');
     lastMapData = r;
     currentMapArea = String(r.area.id);
@@ -731,6 +741,7 @@ async function loadSeatMap(areaId){
     $('mapSync').textContent = r.syncedAt + ' 更新 · 可约 ' + r.area.free + '/' + r.area.total;
     return true;
   }catch(e){
+    if(revision !== dataRevision) return false;
     showMapError(e);
     return false;
   }finally{
@@ -741,18 +752,20 @@ async function loadSeatMap(areaId){
 /** 首次进入：校区 → 楼层 → 区域 依次加载并渲染地图 */
 async function initMapBrowser(force){
   if(mapInitPending || (!force && Date.now() < mapRetryAt)) return false;
+  const revision = dataRevision;
   mapInitPending = true;
   $('btnAddArea').disabled = true;
   try{
     if(!treeData?.length){
       for(const id of ['selPremise', 'selStorey', 'selArea']) selectMessage(id, '正在加载…');
     }
-    await loadTree();
+    if(!await loadTree()) return false;
     if(!await loadAreasOfStorey()) return false;
     mapReady = true;
     $('btnAddArea').disabled = false;
     return await loadSeatMap(curArea);
   }catch(e){
+    if(revision !== dataRevision) return false;
     mapReady = false;
     if(!treeData?.length) for(const id of ['selPremise', 'selStorey', 'selArea']) selectMessage(id, e.code === 10001 ? '请重新登录' : '加载失败，请重试');
     showMapError(e);
@@ -766,11 +779,14 @@ let liveTick = 0;
 let lastRefreshOk = false;
 async function refreshLive(force){
   if(!force && document.hidden) return;
+  if(!force && fullRefreshPromise) return;
   if(mapInitPending || livePending || (!force && Date.now() < mapRetryAt)) return;
+  const revision = dataRevision;
   if(!mapReady){ await initMapBrowser(force); return; }
   livePending = true;
   try{
     const r = await api('/api/areas', {});
+    if(revision !== dataRevision) return;
     if(!r.ok){
       showMapError(mapRequestError(r, '刷新失败'));
       return;
@@ -801,12 +817,50 @@ async function refreshLive(force){
     mapTick++;
     if(mapTick % 2 === 0 && !mapLoading && !document.hidden) await loadSeatMap(curArea);
   }catch(e){
+    if(revision !== dataRevision) return;
     // 失败不再静默：面板空着时也能看到原因
     const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     $('liveHint').innerHTML = '<span style="color:var(--err)">实时数据刷新失败：'
       + escapeHtml(e && e.message ? e.message : String(e)) + '　(' + t + ')</span>';
     showMapError(e);
   }finally{ livePending = false; }
+}
+
+// Coalesce refresh requests, but always run again if login changes while one is in flight.
+// Old responses cannot repaint the map after a login/manual refresh invalidates them.
+function refreshAllSeats(){
+  dataRevision++;
+  refreshAgain = true;
+  mapRetryAt = 0; mapReady = false; lastRefreshOk = false;
+  lastMapData = null; currentMapArea = '';
+  $('mapSeats').replaceChildren(); $('mapLegend').replaceChildren();
+  $('mapEmpty').hidden = false; $('mapEmpty').textContent = '正在刷新座位…';
+  $('areas').textContent = '正在刷新空位…';
+  $('mapSync').textContent = '正在刷新…';
+  renderGrabList();
+  if(fullRefreshPromise) return fullRefreshPromise;
+  const button = $('btnMapRefresh'); button.disabled = true; button.textContent = '刷新中…';
+  fullRefreshPromise = (async () => {
+    do {
+      refreshAgain = false;
+      const revision = dataRevision;
+      // These requests have bounded timeouts. Let their locks drain before requesting new data.
+      while(mapLoading || mapInitPending || livePending || locatingBooking || tickPending)
+        await new Promise(resolve => setTimeout(resolve, 40));
+      if(revision !== dataRevision) continue;
+      try {
+        await api('/api/booking-state', {});
+        await tick();
+        if(revision !== dataRevision) continue;
+        if(await initMapBrowser(true)) await refreshLive(true);
+        if($('bookingHistory').open) await loadBookingHistory();
+      } catch(e) { if(revision === dataRevision) showMapError(e); }
+    } while(refreshAgain);
+  })().finally(() => {
+    fullRefreshPromise = null;
+    button.disabled = false; button.textContent = '刷新座位';
+  });
+  return fullRefreshPromise;
 }
 
 /* ---------- 开始 / 停止 ---------- */
@@ -870,13 +924,19 @@ async function tick(){
     if(s.stopReason) $('planHint').textContent = '任务已停止：' + s.stopReason;
     $('btnStop').hidden = !s.running;
     $('btnStart').textContent = startPending ? '正在启动…' : (s.running ? ($('verifyOnly').checked ? '正在观察，不提交预约' : '正在抢座…') : ($('verifyOnly').checked ? '开始观察空位' : '开始抢座'));
-    $('bookingSummary').hidden = !s.booking;
-    if(!s.booking && $('bookingDialog').open) $('bookingDialog').close();
+    const showBooking = !!s.booking && (s.success || !!s.bookingManagement?.pendingAction);
+    $('bookingSummary').hidden = !showBooking;
+    if((!s.booking || s.booking.endedBy === 'time') && $('bookingDialog').open) $('bookingDialog').close();
     if(s.booking){
       const details = BookingNotifications.message(s.booking);
       $('bookingDetails').textContent = details;
    $('bookingDialogDetails').textContent = details;
    $('bookingSeat').textContent = s.booking.seat;
+    }
+    // Switch action identity before awaiting notification I/O for the new reservation.
+    BookingManagementUI.render(s);
+    window.MobileUI?.render(s);
+    if(s.booking){
       if(s.success && !claimedPageBookings.has(s.booking.id)){
         const claim = await api('/api/notification-claim', { id: s.booking.id, channel: 'page' });
         if(claim.claimed || !claim.ok) notifyBooking(s);
@@ -884,9 +944,6 @@ async function tick(){
         if($('bookingHistory').open) loadBookingHistory();
       }
     }
-    BookingManagementUI.render(s);
-    window.MobileUI?.render(s);
-
     const box = $('logs');
     const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
     box.innerHTML = s.logs.map(l =>
@@ -920,6 +977,7 @@ async function autoLogin(){
 }
 
 let lastLoginReady = false;
+let lastLoginGeneration = -1;
 let loginPollPending = false;
 async function pollLogin(){
   if(loginPollPending) return;
@@ -939,15 +997,18 @@ async function pollLogin(){
       btn.disabled = false; btn.textContent = '重新获取登录态';
       $('autoHint').textContent = '登录态已获取并保存，可直接开始抢座';
       setTokenBadge('ok');
-      if(!lastLoginReady){
+      if(!lastLoginReady || lastLoginGeneration !== s.generation){
         lastLoginReady = true;
+        lastLoginGeneration = s.generation;
         await loadConfig();
-        await initMapBrowser(true);
+        await refreshAllSeats();
       }
     }else if(s.error){
+      lastLoginReady = false;
       btn.disabled = loginRequestPending; btn.textContent = '打开登录窗口';
       $('autoHint').textContent = s.error;
     }else{
+      lastLoginReady = false;
       btn.disabled = loginRequestPending; btn.textContent = '打开登录窗口';
     }
   }catch(e){
@@ -979,11 +1040,7 @@ $('timeMode').onchange = () => {
 };
 $('dateMode').onchange = () => { mapBookingView = ''; api('/api/config', { dateMode: $('dateMode').value }); refreshLive(true); };
 $('startTime').onchange = () => api('/api/config', { startTime: $('startTime').value });
-$('btnMapRefresh').onclick = async () => {
-  const b = $('btnMapRefresh'); b.disabled = true; b.textContent = '刷新中...';
-  try { if(mapReady) await loadSeatMap(curArea); else await initMapBrowser(true); }
-  finally { b.disabled = false; b.textContent = '刷新'; }
-};
+$('btnMapRefresh').onclick = () => refreshAllSeats();
 $('btnAddArea').onclick = addCurrentAreaToList;
 $('planSelect').onchange = () => applyPlan($('planSelect').value);
 $('btnPlanSave').onclick = showPlanEdit;
@@ -1033,6 +1090,16 @@ setInterval(pollLogin, 1500);
 setInterval(refreshLive, 6000);
 tick();
 pollLogin();
+
+// Includes Android onResume (the native activity dispatches focus) and overnight PC sleep.
+let lastResumeRefresh = 0;
+function refreshOnReturn(){
+  if(document.hidden || Date.now() - lastResumeRefresh < 3000) return;
+  lastResumeRefresh = Date.now();
+  tick(); pollLogin(); refreshAllSeats();
+}
+window.addEventListener('focus', refreshOnReturn);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshOnReturn(); });
 </script>
 <dialog id="seatPrefsDialog" aria-labelledby="seatPrefsTitle">
   <div class="section-heading"><h2 id="seatPrefsTitle">区域座位偏好</h2><button type="button" class="text-button" id="seatPrefClose">取消</button></div>
@@ -1052,8 +1119,8 @@ pollLogin();
   <p id="seatPrefMessage" class="hint" role="status" aria-live="polite"></p>
   <div class="btns"><button type="button" id="seatPrefSave">保存偏好</button></div>
 </dialog>
-<script src="/area-seat-prefs-ui.js?v=v0.2.0"></script>
-<script src="/warm-study.js?v=v0.2.0"></script>
-<script src="/desktop-study.js?v=v0.2.0"></script>
+<script src="/area-seat-prefs-ui.js?v=v0.2.1"></script>
+<script src="/warm-study.js?v=v0.2.1"></script>
+<script src="/desktop-study.js?v=v0.2.1"></script>
 </body>
 </html>

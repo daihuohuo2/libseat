@@ -12,7 +12,10 @@ app.whenReady().then(async () => {
   async function waitFor(expr) { for (let i = 0; i < 60; i++) { if (await js(expr)) return; await sleep(100); } throw Error('Timed out: ' + expr); }
   try {
     await win.loadURL(process.env.LIBSEAT_TEST_URL);
-    await waitFor("document.getElementById('renewalState').textContent === '已停止'");
+    // A stopped next-booking plan never adopted this reservation; keep it in history only.
+    await waitFor("document.getElementById('renewalState').textContent === '未开启'");
+    assert.equal(await js("document.getElementById('renewalTiming').textContent"), '');
+    assert.notEqual(await js("document.getElementById('renewalEvents').textContent"), '暂无记录。');
     await js("document.querySelectorAll('dialog[open]').forEach(d => d.close()); document.getElementById('renewalMode').value='current'; document.getElementById('renewalArrival').value='14:00'; document.getElementById('renewalInterval').value='37'; document.getElementById('renewalInterval').dispatchEvent(new Event('input'));");
     assert.equal(await js("document.getElementById('renewalIntervalValue').textContent"), '37 分钟');
     await sleep(1100);

@@ -32,7 +32,7 @@ if (-not (Test-Path $keyFile)) {
   & "$Java/bin/keytool.exe" -genkeypair -keystore $keyFile -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Libseat Prototype,O=Local,C=CN'
   Check-Step
 }
-$apkFile = Join-Path $PSScriptRoot 'output/seat-assistant-0.2.0.apk'
+$apkFile = Join-Path $PSScriptRoot 'output/seat-assistant-0.2.1.apk'
 & "$Java/bin/java.exe" -jar "$($sdkTools.FullName)/lib/apksigner.jar" sign --ks $keyFile --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out $apkFile "$buildDir/aligned.apk"
 Check-Step
 & "$Java/bin/java.exe" -jar "$($sdkTools.FullName)/lib/apksigner.jar" verify --verbose $apkFile

@@ -1,8 +1,10 @@
-# 座位助手 · Android 0.2.0
+# 座位助手 · Android 0.2.1
 
 手机独立运行，无需电脑开机。最低 Android 8.0，建议更新 Android System WebView。
 
-从 [GitHub Releases](https://github.com/daihuohuo2/libseat/releases) 下载 `seat-assistant-0.2.0.apk`，传到手机安装。保留旧版应用直接覆盖安装，可保留手机里的登录状态、偏好与记录。此包使用项目本地体验版密钥签名，未发布应用商店。
+从 [GitHub Releases](https://github.com/daihuohuo2/libseat/releases) 下载 `seat-assistant-0.2.1.apk`，传到手机安装。保留旧版应用直接覆盖安装，可保留手机里的登录状态、偏好与记录。此包使用项目本地体验版密钥签名，未发布应用商店。
+
+0.2.1 修复隔天旧预约标记残留；重新登录或返回应用会刷新预约、空位和地图，也可手动点“刷新座位”。到期记录仍可在最近预约记录中查看。
 
 ## 使用
 
@@ -33,7 +35,7 @@
 node --test tests/*.test.js
 ```
 
-输出为 `android/output/seat-assistant-0.2.0.apk`，使用本地 `android/local-debug.keystore` 签名。保留该密钥以便覆盖安装；源码和发布包不包含密钥、账号或历史数据。
+输出为 `android/output/seat-assistant-0.2.1.apk`，使用本地 `android/local-debug.keystore` 签名。保留该密钥以便覆盖安装；源码和发布包不包含密钥、账号或历史数据。
 
 对专用 Android 模拟器运行原生流程测试（只重置模拟器应用的演示数据）：
 
@@ -41,7 +43,7 @@ node --test tests/*.test.js
 ./android/test.ps1 -Sdk D:/Android/Sdk -Java D:/Java -Serial emulator-5554
 ```
 
-测试 APK 与正式包分开构建。测试通过真实 WebView、原生桥接和文件存储检查：地图、抢座、滑块间隔、到时同座重约、后台服务、取消停止重约、到馆状态、临时签离、完全签离和红色标记移除。测试时钟和自动确认不会打进发布 APK。
+测试 APK 与正式包分开构建。测试通过真实 WebView、原生桥接和文件存储检查：地图、抢座、滑块间隔、到时同座重约、后台服务、取消停止重约、到馆状态、临时签离、完全签离、重新登录刷新、手动刷新、隔天返回时清除旧标记和再次预约。测试时钟和自动确认不会打进发布 APK。
 
 ## 架构
 

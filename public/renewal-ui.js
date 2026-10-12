@@ -42,7 +42,10 @@
       return;
     }
     const unresolved = ['cancel-unknown', 'booking-unknown'].includes(job.phase);
-    el('renewalState').textContent = labels[job.phase] || '未开启';
+    const historical = !job.active && !job.busy && !job.error && !unresolved
+      && ['stopped', 'finished'].includes(job.phase)
+      && (!status.success || job.booking?.id !== status.booking?.id);
+    el('renewalState').textContent = historical ? '未开启' : labels[job.phase] || '未开启';
     el('btnRenewalStart').disabled = pending || job.busy || job.active || unresolved || !!job.error || status.running || !!status.pendingBooking
       || status.bookingManagement?.busy || status.bookingManagement?.checking || !!status.bookingManagement?.pendingAction;
     el('btnRenewalStop').hidden = !job.active && !job.busy;
@@ -60,10 +63,10 @@
       el('renewalArrival').value = new Date(job.arrivalAt + 8 * 3600000).toISOString().slice(11, 16);
       el('renewalMode').value = job.phase === 'armed' ? 'next' : 'current';
     }
-    if (!pending) el('renewalStatus').textContent = actionError || job.error || job.message || '';
+    if (!pending) el('renewalStatus').textContent = actionError || (historical ? '' : job.error || job.message || '');
     el('renewalStatus').dataset.error = String(!!actionError || !!job.error || unresolved || job.phase === 'paused');
     const next = job.active && job.nextAt ? (job.nextAt < job.arrivalAt ? '下次重约：' + time(job.nextAt) : '到馆前无需再次重约') : '';
-    el('renewalTiming').textContent = job.arrivalAt ? [job.booking ? '座位：' + job.booking.seat : '等待成功预约', '间隔：' + (job.intervalMinutes || 50) + ' 分钟', '到馆：' + time(job.arrivalAt), next, '已重约 ' + (job.cycles || 0) + ' 次'].filter(Boolean).join(' · ') : '';
+    el('renewalTiming').textContent = !historical && job.arrivalAt ? [job.booking ? '座位：' + job.booking.seat : '等待成功预约', '间隔：' + (job.intervalMinutes || 50) + ' 分钟', '到馆：' + time(job.arrivalAt), next, '已重约 ' + (job.cycles || 0) + ' 次'].filter(Boolean).join(' · ') : '';
     el('renewalEvents').textContent = job.events?.length ? job.events.slice().reverse().map(e => time(e.at) + ' ' + e.message).join('\n') : '暂无记录。';
     notice(job.notice);
   }

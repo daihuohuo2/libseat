@@ -28,6 +28,23 @@ test('identity: seconds accepted, end changes retain official ID, ambiguous and 
   assert.equal(findBooking([record, { ...record, id: 'other' }], booking), null);
   assert.equal(findBooking([{ ...record, beginTime: '2026-10-10 15:17:38' }], booking), null);
 });
+
+test('relogin discards an old account response and a forced refresh waits then queries the current session', async t => {
+  const f = fixture(t);
+  let release, reads = 0;
+  f.deps.records = async () => {
+    reads++;
+    if (reads === 1) return new Promise(resolve => { release = () => resolve([{ ...record, status: '6' }]); });
+    return [record];
+  };
+  const old = f.manager.refresh();
+  f.token = 'new-session';
+  const fresh = f.manager.refresh(true);
+  release(); await old;
+  assert.equal(f.booking.outcome, 'success', 'old terminal response cannot cancel the current view');
+  await fresh;
+  assert.equal(reads, 2); assert.equal(f.manager.status().state, 'reserved');
+});
 test('official availability flags gate temporary and full checkout', () => {
   assert.deepEqual(describe({ ...record, status: '3' }, { flag_out: 1, SYS_WEB_MYYUYUE_RIGHTBACK: 0, SYS_WEB_MYYUYUE_LEAVE: 1 }).actions, ['checkout']);
   assert.deepEqual(describe({ ...record, status: '3' }, null).actions, []);

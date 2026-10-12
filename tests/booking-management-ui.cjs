@@ -20,6 +20,7 @@ app.whenReady().then(async () => {
       await js("window.confirm=()=>true; document.getElementById('bookingAction-cancel').click(); document.getElementById('bookingAction-cancel').click()");
       await wait("document.getElementById('bookingSummaryTitle').textContent==='已取消预约'");
       assert.equal(await js("document.getElementById('bookingDialog').open"), true);
+      assert.equal(await js("document.getElementById('bookingSummary').hidden"), true);
       assert.equal(await js("document.getElementById('bookingAction-cancel').hidden"), true);
     } else {
       const file = path.join(process.env.LIBSEAT_TEST_DIR, 'management-row.json');
@@ -41,6 +42,7 @@ app.whenReady().then(async () => {
       await wait("!document.getElementById('bookingAction-checkout').disabled");
       await js("document.getElementById('bookingAction-checkout').click()");
       await wait("document.getElementById('bookingSummaryTitle').textContent==='已结束使用'");
+      assert.equal(await js("document.getElementById('bookingSummary').hidden"), true);
       assert.equal(await js("document.getElementById('bookingAction-checkout').hidden"), true);
     }
     console.log('UI PASS: ' + process.env.LIBSEAT_UI_SCENARIO); app.exit(0);

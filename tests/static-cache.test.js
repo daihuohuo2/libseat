@@ -22,7 +22,7 @@ function worker() {
     self: { location: { origin }, addEventListener: (name, handler) => handlers[name] = handler,
       skipWaiting: async () => {}, clients: { claim: async () => {} } },
     caches: { open: async () => cache,
-      keys: async () => ['unrelated-app-cache', 'libseat-shell-old', 'libseat-shell-v0.2.0'],
+      keys: async () => ['unrelated-app-cache', 'libseat-shell-old', 'libseat-shell-v0.2.1'],
       delete: async name => deleted.push(name) },
     fetch: async (request, options) => { network.push({ request, options }); return fetchResult(); }
   };
@@ -52,7 +52,7 @@ test('worker precaches every referenced script/style at the same version and byp
 
 test('worker revalidates fresh HTTP entries, caches successes and excludes APIs/other origins', async () => {
   const w = worker();
-  assert.equal(await (await w.event('fetch', w.request('/seat-map.js?v=v0.2.0'))).text(), 'current');
+  assert.equal(await (await w.event('fetch', w.request('/seat-map.js?v=v0.2.1'))).text(), 'current');
   assert.equal(w.network[0].options.cache, 'no-cache'); assert.equal(w.writes.length, 1);
   await w.event('fetch', w.request('/api/status'));
   await w.event('fetch', w.request('/api/seats', { method: 'POST' }));
@@ -61,7 +61,7 @@ test('worker revalidates fresh HTTP entries, caches successes and excludes APIs/
 });
 
 test('failed resource responses never overwrite a working cached script', async () => {
-  const w = worker(), url = origin + '/seat-map.js?v=v0.2.0';
+  const w = worker(), url = origin + '/seat-map.js?v=v0.2.1';
   w.stored.set(url, new Response('working script'));
   w.setFetch(async () => new Response('error', { status: 500 }));
   assert.equal((await w.event('fetch', w.request(url))).status, 500);
@@ -69,7 +69,7 @@ test('failed resource responses never overwrite a working cached script', async 
 });
 
 test('offline fallback preserves cached assets and serves HTML only for navigation', async () => {
-  const w = worker(), asset = '/seat-map.js?v=v0.2.0';
+  const w = worker(), asset = '/seat-map.js?v=v0.2.1';
   w.setFetch(async () => { throw Error('offline'); });
   w.stored.set(origin + asset, new Response('cached script'));
   w.stored.set(origin + '/index.html', new Response('<html>offline shell</html>'));
