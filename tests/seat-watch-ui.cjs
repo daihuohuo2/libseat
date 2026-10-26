@@ -8,18 +8,30 @@ app.whenReady().then(async()=>{
   async function wait(expr){for(let i=0;i<160;i++){if(await js(expr))return;await new Promise(r=>setTimeout(r,60));}throw Error('Timeout: '+expr);}
   try{
     await win.loadURL(process.env.LIBSEAT_TEST_URL);await wait('mapReady && !mapLoading && !fullRefreshPromise');
-    await js("document.getElementById('watchChoose').click();document.getElementById('watchSeatInput').value='001,048';document.getElementById('watchSave').click()");
+    await js("window.noticeCalls=[];window.permissionRequests=0;window.Notification=class {static permission='default';static async requestPermission(){permissionRequests++;this.permission='granted';return 'granted';}constructor(title,options){noticeCalls.push({title,...options});}close(){}};document.getElementById('watchInput').click();document.getElementById('watchSeatInput').value='001,048';document.getElementById('watchSave').click()");
     assert.match(await js("document.getElementById('watchInputError').textContent"),/一个/);
-    await js("document.getElementById('watchSeatInput').value='048';document.getElementById('watchSave').click()");
+    await js("document.getElementById('watchClose').click();document.getElementById('watchChoose').click();document.querySelector('#mapSeats [data-no=XF5A048]').click()");
+    assert.equal(await js("document.getElementById('watchSeatInput').value"),'XF5A048');
+    assert.equal(await js("document.getElementById('watchDialog').open"),true);
+    assert.equal(await js("document.querySelector('#mapSeats .seat-watch-target')"),null);
+    await js("document.getElementById('watchSave').click()");
     assert.equal(await js("document.querySelector('#mapSeats .seat-watch-target').dataset.no"),'XF5A048');
     await wait("!document.getElementById('watchStart').disabled");await js("document.getElementById('watchStart').click()");
     await wait("document.getElementById('watchMessage').textContent.includes('暂不可约')");
+    assert.equal(await js('permissionRequests'),1);
+    await wait("noticeCalls.filter(n=>n.title==='盯座任务正在运行').length===1 && !!document.querySelector('.task-toast')");
+    await js('tick()');assert.equal(await js("noticeCalls.filter(n=>n.title==='盯座任务正在运行').length"),1);
     assert.equal(await js("document.getElementById('btnStart').disabled && document.getElementById('btnRenewalStart').disabled"),true);
     assert.equal(await js("document.getElementById('watchChoose').disabled"),true);
+    await js("document.querySelector('#mapSeats [data-no=XF5A001]').click()");
+    assert.equal(await js("document.getElementById('watchDialog').open"),false);
     const file=path.join(dir,'watch-school.json'),data=JSON.parse(fs.readFileSync(file));data.available=true;fs.writeFileSync(file,JSON.stringify(data));
     fs.writeFileSync(path.join(dir,'now.txt'),'2026-10-26T10:00:03+08:00');
     await wait("document.getElementById('watchState').textContent==='已完成' && document.getElementById('bookingSeat').textContent==='XF5A048'");
     await wait("document.querySelector('#mapSeats .seat-mine')?.dataset.no==='XF5A048'");
+    await wait("document.getElementById('bookingDialog').open && noticeCalls.some(n=>n.title==='抢到座位了！XF5A048')");
+    assert.equal(await js("document.querySelector('.task-toast')"),null);
+    await js('tick()');assert.equal(await js("noticeCalls.filter(n=>n.title==='抢到座位了！XF5A048').length"),1);
     assert.match(await js("document.getElementById('watchMessage').textContent"),/重新签到/);
     await js("document.querySelectorAll('dialog[open]').forEach(d=>d.close())");win.setSize(390,844);
     await new Promise(r=>setTimeout(r,150));assert.equal(await js('document.documentElement.scrollWidth<=innerWidth+1'),true);

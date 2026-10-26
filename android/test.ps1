@@ -29,7 +29,7 @@ for($attempt=0;$attempt -lt 60;$attempt++) {
     Start-Sleep -Seconds 1
 }
 if(-not $booted) { throw 'Start the disposable emulator and wait for Android to finish booting.' }
-& $adb -s $Serial install -r output/seat-assistant-0.3.0.apk
+& $adb -s $Serial install -r output/seat-assistant-0.3.1.apk
 Check-Step
 & $adb -s $Serial install -r build/test.apk
 Check-Step

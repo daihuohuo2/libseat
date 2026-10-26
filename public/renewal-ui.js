@@ -21,15 +21,20 @@
     seen.add(n.id);
     const key = 'libseat-renewal-' + n.id;
     try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (_) {}
-    const dialog = document.createElement('dialog');
+    const started = n.event === 'started';
+    const dialog = document.createElement(started ? 'div' : 'dialog');
+    dialog.dataset.noticeId = n.id;
+    dialog.dataset.noticeEvent = n.event || '';
+    if (started) { dialog.className = 'task-toast'; dialog.setAttribute('role', 'status'); }
     const title = document.createElement('h2'); title.textContent = n.title;
     const content = document.createElement('p'); content.textContent = n.message; content.style.margin = '20px 0';
     const button = document.createElement('button'); button.textContent = '知道了'; button.autofocus = true;
-    button.onclick = () => dialog.close();
+    button.onclick = () => started ? dialog.remove() : dialog.close();
     dialog.append(title, content, button); document.body.append(dialog);
-    dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
+    if (started) setTimeout(() => dialog.remove(), 7000);
+    else { dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal(); }
     if (!window.seatAssistant?.nativeNotifications && 'Notification' in window && Notification.permission === 'granted') {
-      try { const notification = new Notification(n.title, { body: n.message, tag: n.id, requireInteraction: true });
+      try { const notification = new Notification(n.title, { body: n.message, tag: n.id, requireInteraction: !started });
         notification.onclick = () => { window.focus(); notification.close(); }; } catch (_) {}
     }
   }

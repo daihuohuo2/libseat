@@ -48,6 +48,15 @@ test('only the exact occupied target is watched, retaining the current seat unti
   f.available=true;await f.tick();assert.deepEqual(f.calls,['checkout','reserve:new']);assert.equal(f.manager.job.phase,'finished');
   await f.tick();assert.equal(f.calls.length,2);assert.ok(!fs.readFileSync(f.file,'utf8').includes('private'));
 });
+test('running notification is stable across polls, cleared on stop/restart, and unique for each start',async t=>{
+  const f=fixture(t);await f.start();const notice=f.manager.status().notice;
+  assert.equal(notice.event,'started');assert.match(notice.message,/XF5A048/);
+  await f.tick();assert.equal(f.manager.status().notice.id,notice.id);
+  assert.equal(f.reload().status().notice,null);
+  f.manager.stop();assert.equal(f.manager.status().notice,null);
+  await f.start();assert.notEqual(f.manager.status().notice.id,notice.id);
+  f.available=true;await f.tick();assert.equal(f.manager.status().notice,null);
+});
 for(const kind of [null,'reserved','signed','away']) test('current state '+kind+' selects the correct release action before booking', async t=>{
   const f=fixture(t,kind);f.available=true;await f.start();await Promise.all([f.tick(),f.tick()]);
   assert.deepEqual(f.calls,[...(kind?[kind==='reserved'?'cancel':'checkout']:[]),'reserve:new']);

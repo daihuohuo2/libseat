@@ -100,7 +100,7 @@ async function pollBooking() {
           try {
             if (!Notification.isSupported()) fallback();
             else {
-              const notification = new Notification({ title: notice.title, body: notice.message, timeoutType: 'never' });
+              const notification = new Notification({ title: notice.title, body: notice.message, timeoutType: notice.event === 'started' ? 'default' : 'never' });
               activeNotifications.add(notification);
               notification.on('click', focusWindow);
               notification.on('close', () => activeNotifications.delete(notification));

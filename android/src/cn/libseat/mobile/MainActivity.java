@@ -122,7 +122,7 @@ public class MainActivity extends Activity {
     class MobileBridge {
         final WebView page; MobileBridge(WebView page) { this.page=page; }
         @JavascriptInterface public boolean isDemo() { return service!=null && service.demo; }
-        @JavascriptInterface public boolean notificationsAllowed() { return getSystemService(NotificationManager.class).areNotificationsEnabled(); }
+        @JavascriptInterface public boolean notificationsAllowed() { return service!=null && service.notificationsAllowed(); }
         @JavascriptInterface public void api(int id,String path,String method,String body) { runOnUiThread(()->{
             if(service==null || page!=ui) return;
             if(!path.matches("/api/(?:[a-z-]+|renewal/(?:start|stop|check))") || (!method.equals("GET") && !method.equals("POST")) || body.length()>2000000) {

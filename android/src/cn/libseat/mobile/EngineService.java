@@ -95,7 +95,11 @@ public class EngineService extends Service {
             || (management!=null && (management.optBoolean("busy") || management.optBoolean("checking") || !management.isNull("pendingAction")))
             || (watch!=null && (watch.optBoolean("active") || watch.optBoolean("busy") || watch.optString("phase").endsWith("-unknown")));
     }
-    boolean notificationsAllowed() { return getSystemService(NotificationManager.class).areNotificationsEnabled(); }
+    boolean notificationsAllowed() {
+        NotificationManager manager=getSystemService(NotificationManager.class);
+        NotificationChannel channel=manager.getNotificationChannel("booking");
+        return manager.areNotificationsEnabled() && channel!=null && channel.getImportance()!=NotificationManager.IMPORTANCE_NONE;
+    }
     PendingIntent openIntent() { return PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE); }
     Notification taskNotice(String text) {
         PendingIntent stop = PendingIntent.getService(this,1,new Intent(this,EngineService.class).setAction("STOP"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
@@ -252,7 +256,7 @@ public class EngineService extends Service {
         @JavascriptInterface public String loginRead() { return "{\"token\":"+JSONObject.quote(loginToken)+",\"error\":"+JSONObject.quote(loginError)+"}"; }
         @JavascriptInterface public void status(String body) { post(()->{
             try {
-                JSONObject s=new JSONObject(body); boolean wasRunning=running;
+                JSONObject s=new JSONObject(body); boolean wasRunning=running, wasWatching=watching;
                 running=s.optBoolean("running"); pendingBooking=!s.isNull("pendingBooking"); checkingBooking=s.optBoolean("checkingBooking");
                 JSONObject renewal=s.optJSONObject("renewal"), management=s.optJSONObject("bookingManagement"), watch=s.optJSONObject("seatWatch");
                 renewing=renewal!=null && (renewal.optBoolean("active") || renewal.optBoolean("busy"));
@@ -263,10 +267,12 @@ public class EngineService extends Service {
                     catch(Exception e) { dispatch("/api/stop","POST","{}",(c,b)->{}); notifyText("后台任务未启动","请回到应用，允许后台运行后重试。",3); }
                 }
                 if(foreground && working) {
-                    String text=watching ? "正在盯指定座位 · 可在此停止" : renewing ? "定时重约 · 每 "+renewal.optInt("intervalMinutes",50)+" 分钟 · 可在此停止" : "正在检查座位，可点击返回应用";
+                    JSONObject target=watch==null?null:watch.optJSONObject("target");
+                    String text=watching ? "正在盯 "+(target==null?"指定座位":target.optString("seat"))+" · 可在此停止" : renewing ? "定时重约 · 每 "+renewal.optInt("intervalMinutes",50)+" 分钟 · 可在此停止" : "正在检查座位，可点击返回应用";
                     if(!text.equals(taskText)) { taskText=text; getSystemService(NotificationManager.class).notify(1,taskNotice(text)); }
                 }
                 if(foreground && !working && System.currentTimeMillis()-foregroundSince>2500) { leaveForeground(); taskText=""; }
+                if(wasWatching && !watching && (watch==null || watch.isNull("notice"))) getSystemService(NotificationManager.class).cancel(5);
                 if(wasRunning && !running && pendingBooking) notifyText("预约结果待确认", "已暂停抢座，请打开应用核实，避免重复预约。", 3);
                 else if(wasRunning && !running && !s.optBoolean("success")) notifyText("座位任务已停止", "请打开应用查看运行记录。", 3);
             } catch(JSONException ignored) {}

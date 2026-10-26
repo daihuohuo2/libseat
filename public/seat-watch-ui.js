@@ -5,6 +5,8 @@
   const labels = { watching:'盯座中', releasing:'正在换出', released:'正在换座', booking:'正在预约',
     'release-unknown':'释放待核实', 'booking-unknown':'预约待核实', finished:'已完成', paused:'已暂停', stopped:'已停止' };
   const unresolved = w => ['releasing','release-unknown','booking','booking-unknown'].includes(w?.phase);
+  const canSelect = () => !working && !snapshot?.seatWatch?.active && !snapshot?.seatWatch?.busy
+    && !unresolved(snapshot?.seatWatch) && !snapshot?.seatWatch?.error && mapReady && !mapLoading;
   function redraw() { if (typeof lastMapData !== 'undefined' && lastMapData) renderSeatMap(lastMapData); }
   async function locate() {
     if (!/Android|iPhone|iPad/i.test(navigator.userAgent) || !navigator.geolocation) return {};
@@ -24,6 +26,8 @@
     el('watchTarget').textContent = draft?.seat ? draft.seat + ' · ' + draft.area : '未设置目标';
     el('watchState').textContent = labels[w.phase] || '未开启';
     el('watchChoose').disabled = locked;
+    el('watchInput').disabled = locked;
+    for (const seat of el('mapSeats').querySelectorAll('.seat')) seat.disabled = !canSelect();
     el('watchStart').hidden = !!w.active || !!w.busy;
     el('watchStart').disabled = locked || !draft?.seatId || s.running || s.pendingBooking || s.storageError
       || s.renewal?.active || s.renewal?.busy || s.renewal?.error || s.renewal?.phase?.endsWith('unknown')
@@ -42,7 +46,8 @@
     }
     if (w.active || w.busy || unresolved(w)) el('runState').textContent = labels[w.phase] || '正在盯座';
     if (w.active) refreshLocation();
-    if (w.notice) RenewalUI.notice(w.notice);
+    if (!w.active && !working) document.querySelectorAll('.task-toast[data-notice-event="started"]').forEach(n => n.remove());
+    if (w.notice && (w.notice.event !== 'started' || w.active)) RenewalUI.notice(w.notice);
   }
   async function action(name) {
     if (working) return;
@@ -58,21 +63,38 @@
       }
       const r = await api('/api/watch-' + name, body);
       if (!r.ok) throw Error(r.message || '操作失败');
+      if (name === 'start' && r.seatWatch?.notice) RenewalUI.notice(r.seatWatch.notice);
     } catch (e) { error = e.message; }
     finally { working = false; await tick(); if (snapshot) render(snapshot); }
   }
-  el('watchChoose').onclick = () => {
+  function openSelection(seat) {
+    if (!canSelect()) return;
     if (!lastMapData || !mapReady || mapLoading) { error = '请先在地图选择区域并刷新座位'; if(snapshot) render(snapshot); return; }
     map = lastMapData;
     el('watchArea').textContent = map.area.name;
-    el('watchSeatInput').value = draft?.areaId === String(map.area.id) ? draft.seat : '';
+    el('watchSeatInput').value = seat?.no || (draft?.areaId === String(map.area.id) ? draft.seat : '');
     el('watchInputError').textContent = '';
     el('watchSeatOptions').replaceChildren(...map.seats.map(s => { const option = document.createElement('option'); option.value = s.no; return option; }));
-    el('watchDialog').showModal(); el('watchSeatInput').focus();
+    el('watchDialog').showModal(); el(seat ? 'watchSave' : 'watchSeatInput').focus();
+  }
+  el('watchInput').onclick = () => openSelection();
+  el('watchChoose').onclick = () => {
+    if (!lastMapData || !canSelect()) { error = '请先在地图选择区域并刷新座位'; if(snapshot) render(snapshot); return; }
+    error = ''; if (snapshot) render(snapshot);
+    el('mapWrap').scrollIntoView({ block:'center', behavior:'smooth' }); el('mapWrap').focus({ preventScroll:true });
+    el('watchMessage').textContent = '点击地图中的座位，再确认设为盯座目标。被占用的座位也可以选。';
   };
+  el('mapSeats').addEventListener('click', event => {
+    const button = event.target.closest('button[data-seat-id]');
+    if (!button || !canSelect()) return;
+    const seat = lastMapData?.seats.find(s => String(s.id) === button.dataset.seatId);
+    if (seat) openSelection(seat);
+  });
   el('watchClose').onclick = () => el('watchDialog').close();
   el('watchSave').onclick = () => {
     try {
+      if (!canSelect()) throw Error('请先停止盯座，再更换目标');
+      if (map !== lastMapData) throw Error('地图已刷新，请重新点选座位');
       const selected = AreaSeatPrefs.parse(el('watchSeatInput').value, map.seats);
       if (selected.length !== 1) throw Error('盯座只能指定一个座位');
       const seat = map.seats.find(s => s.no.toUpperCase() === selected[0]);
@@ -81,8 +103,11 @@
       error = ''; el('watchDialog').close(); if (snapshot) render(snapshot); redraw();
     } catch(e) { el('watchInputError').textContent = e.message; }
   };
-  el('watchStart').onclick = () => action('start');
+  el('watchStart').onclick = () => {
+    if (!nativeNotifications && 'Notification' in window && Notification.permission === 'default') enableNotifications();
+    action('start');
+  };
   el('watchStop').onclick = () => action('stop');
   el('watchCheck').onclick = () => action('check');
-  window.SeatWatchUI = { render, isTarget:(seat, data) => draft?.areaId === String(data.area.id) && draft?.seatId === String(seat.id) };
+  window.SeatWatchUI = { render, canSelect, isTarget:(seat, data) => draft?.areaId === String(data.area.id) && draft?.seatId === String(seat.id) };
 })();

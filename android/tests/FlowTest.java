@@ -54,6 +54,18 @@ public class FlowTest extends Instrumentation {
         File demo=new File(getTargetContext().getFilesDir(),"demo"); demo.mkdirs();
         try(FileOutputStream out=new FileOutputStream(new File(demo,name))) { out.write(text.getBytes(StandardCharsets.UTF_8)); }
     }
+    android.service.notification.StatusBarNotification notification(int id) {
+        for(android.service.notification.StatusBarNotification n:getTargetContext().getSystemService(android.app.NotificationManager.class).getActiveNotifications()) if(n.getId()==id) return n;
+        return null;
+    }
+    android.service.notification.StatusBarNotification awaitNotification(int id,String text) throws Exception {
+        for(int i=0;i<120;i++) {
+            android.service.notification.StatusBarNotification n=notification(id);
+            if(n!=null && n.getNotification().extras.getCharSequence(android.app.Notification.EXTRA_TEXT,"").toString().contains(text)) return n;
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Missing native notification "+id+" containing "+text);
+    }
     @Override public void onStart() {
         Bundle result=new Bundle();
         try {
@@ -129,17 +141,28 @@ public class FlowTest extends Instrumentation {
             until(page,"document.getElementById('btnBookingDetails').textContent==='查看位置信息'");
             js(engine,"window.watchFree=false;window.watchMutations=[];(()=>{const m=require('./android-demo.js'),respond=m.respond;m.respond=function(p,b){if(/\\/(checkout|cancel|confirm)$/.test(p))watchMutations.push({path:p,body:b});const r=respond(p,b);if(p==='/v4/Space/seat'){const target=r.data.list.find(s=>s.no==='XF5A048');if(target)target.status=watchFree?'1':'6';}return r;};})();true");
             promise(page,"refreshAllSeats()"); click("watchChoose");
-            js(page,"document.getElementById('watchSeatInput').value='048';true"); click("watchSave"); click("watchStart");
+            js(page,"document.querySelector('#mapSeats [data-no=XF5A048]').click();true");
+            check("XF5A048".equals(js(page,"document.getElementById('watchSeatInput').value")),"map tap must select the exact occupied seat");
+            click("watchSave"); click("watchStart");
             until(page,"document.getElementById('watchMessage').textContent.includes('暂不可约')");
             check(Boolean.TRUE.equals(js(engine,"watchMutations.length===0")),"occupied target never releases current seat or books other free seats");
             Thread.sleep(3500); check(activity.service.foreground && activity.service.watching,"watch task needs native foreground service");
+            android.service.notification.StatusBarNotification started=awaitNotification(5,"XF5A048");
+            check(started.getNotification().extras.getCharSequence(android.app.Notification.EXTRA_TITLE,"").toString().contains("正在运行"),"running notice must have a clear title");
+            awaitNotification(1,"XF5A048");
+            check(getTargetContext().getSystemService(android.app.NotificationManager.class).getNotificationChannel("booking").getImportance()==android.app.NotificationManager.IMPORTANCE_HIGH,"result channel supports heads-up notifications");
+            Thread.sleep(1500);check(notification(5).getPostTime()==started.getPostTime(),"running notification must not repeat on polling");
             getTargetContext().getSystemService(android.app.NotificationManager.class).cancel(2);
             js(page,"document.querySelector('.watch-panel').scrollIntoView({block:'start'});true"); Thread.sleep(250); screenshot("mobile-watch.png");
+            runOnMainSync(()->activity.moveTaskToBack(true));
             js(engine,"window.watchFree=true;window.flowNow+=8000;true"); js(page,"window.flowNow+=8000;true");
+            awaitNotification(2,"XF5A048");
+            check(notification(5)==null,"finished task must remove stale running notification");
+            runOnMainSync(()->activity.startActivity(new Intent(activity,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)));
             until(page,"document.getElementById('watchState').textContent==='已完成' && document.getElementById('bookingSeat').textContent==='XF5A048'");
             check(Boolean.TRUE.equals(js(engine,"watchMutations.length===2 && watchMutations[0].path==='/v4/space/checkout' && watchMutations[1].path==='/v4/space/confirm' && watchMutations[1].body.seat_id==='demo-XF5A048'")),"exactly one checkout followed by the chosen target reservation");
             check(api("/api/status",null).getBoolean("success"),"target booking succeeded");
-            result.putString("stream","PASS: Android WebView map, grab, renewal, cancel, sign/leave/checkout, login/next-day refresh, exact-seat watch, foreground service, checked-in checkout then target booking.\n");
+            result.putString("stream","PASS: Android WebView map tap selection, running and background booking notifications, grab, renewal, cancel, sign/leave/checkout, login/next-day refresh, exact-seat watch, foreground service, checked-in checkout then target booking.\n");
             finish(Activity.RESULT_OK,result);
         } catch(Throwable e) { result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(e)); finish(Activity.RESULT_CANCELED,result); }
     }

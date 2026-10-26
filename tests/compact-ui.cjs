@@ -30,7 +30,7 @@ app.whenReady().then(async () => {
       assert.equal(await js('testAssetRevision'), 2, 'updated worker bypasses the old one-hour HTTP cache on ordinary reload');
     }
     assert.equal(await js("getComputedStyle(document.querySelector('#mapSeats .seat-mine')).backgroundColor"), 'rgb(199, 70, 60)');
-    assert.equal(await js("document.querySelector('#mapSeats .seat-mine').title"), 'XF5A149 · 我的预约');
+    assert.equal(await js("document.querySelector('#mapSeats .seat-mine').title"), 'XF5A149 · 我的预约 · 点选盯座');
     assert.equal(await js("document.querySelector('#mapLegend .seat-mine').textContent.trim()"), '我的预约 1');
     assert.equal(await js("document.querySelector('.hero')"), null);
     assert.equal(await js("document.querySelector('.desktop-sidebar')"), null);

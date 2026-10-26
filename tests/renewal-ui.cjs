@@ -84,11 +84,11 @@ app.whenReady().then(async () => {
     assert.equal(mapState.count, 230); assert.equal(mapState.labels, true); assert.equal(mapState.cells, 230);
     assert.equal(mapState.widths.length, 1); assert.equal(mapState.heights.length, 1);
     assert.deepEqual(mapState.colors, ['rgb(197, 235, 210)', 'rgb(255, 229, 160)', 'rgb(206, 229, 255)', 'rgb(233, 232, 227)']);
-    assert.deepEqual(mapState.titles, ['XF5A001 · 空闲', 'XF5A002 · 已预约', 'XF5A003 · 临时离开', 'XF5A004 · 使用中']);
+    assert.deepEqual(mapState.titles, ['XF5A001 · 空闲 · 点选盯座', 'XF5A002 · 已预约 · 点选盯座', 'XF5A003 · 临时离开 · 点选盯座', 'XF5A004 · 使用中 · 点选盯座']);
     await js("document.getElementById('btnMapZoomIn').click()");
     assert.ok(parseInt(await js("document.getElementById('mapZoomValue').textContent")) > parseInt(mapState.zoom));
     await js("mapFixture.seats[0].status='7'; renderSeatMap(mapFixture);");
-    assert.equal(await js("document.querySelector('#mapSeats .seat').title"), 'XF5A001 · 临时离开');
+    assert.equal(await js("document.querySelector('#mapSeats .seat').title"), 'XF5A001 · 临时离开 · 点选盯座');
     await js("document.getElementById('btnMapReset').click()");
     assert.equal(await js('seatMapZoom'), 1);
     assert.equal(await js("document.getElementById('mapWrap').scrollLeft"), 0);

@@ -22,7 +22,7 @@ class SeatWatch {
         if (this.job && (this.job.active || uncertain(this.job.phase) || this.job.phase === 'released')) {
           const phase = ['releasing', 'release-unknown'].includes(this.job.phase) ? 'release-unknown'
             : ['booking', 'booking-unknown'].includes(this.job.phase) ? 'booking-unknown' : 'paused';
-          this.set({ active: false, phase }, phase.endsWith('unknown') ? '程序退出时有请求待确认，请核实结果，未重复发送。'
+          this.set({ active: false, phase, notice: null }, phase.endsWith('unknown') ? '程序退出时有请求待确认，请核实结果，未重复发送。'
             : this.job.phase === 'released' ? '原座位已释放，程序重启后未继续预约。请确认后重新开启盯座。' : '盯座已暂停，请确认目标后重新开启。');
         }
       }
@@ -61,7 +61,9 @@ class SeatWatch {
       const result = await this.deps.inspect(input, cfg, date);
       if (generation !== this.generation || cfg.token !== this.deps.config().token || signature(cfg) !== signature(this.deps.config())) throw Error('任务或登录设置已变化，请重新开启');
       this.save({ id: crypto.randomUUID(), target: result.target, date, settings: signature(cfg), active: true,
-        phase: 'watching', events: [], notice: null, message: '正在盯 ' + result.target.seat + '，只预约这个座位。' });
+        phase: 'watching', events: [], notice: { id: crypto.randomUUID(), event:'started', level:'info', title:'盯座任务正在运行',
+          message:'正在盯 ' + result.target.seat + ' · ' + result.target.area + '。目标空闲后按当前预约状态自动预约或换座。' },
+        message: '正在盯 ' + result.target.seat + '，只预约这个座位。' });
       this.sessionToken = cfg.token; this.nextAt = 0;
     } finally { this.busy = false; }
   }
@@ -69,7 +71,7 @@ class SeatWatch {
     this.generation++;
     if (!this.job) return;
     const phase = uncertain(this.job.phase) ? this.job.phase : 'stopped';
-    this.set({ active: false, phase }, uncertain(phase) ? '已停止后续操作，正在确认已发出请求的结果。'
+    this.set({ active: false, phase, notice: this.job.notice?.event === 'started' ? null : this.job.notice }, uncertain(phase) ? '已停止后续操作，正在确认已发出请求的结果。'
       : '已停止盯座。停止本身不会取消或签离当前预约。');
   }
   guard(generation, cfg) {

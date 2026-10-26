@@ -51,7 +51,7 @@ module.exports = async function cacheUpgradeProxy(backend, t) {
       res.setHeader('Content-Type', response.headers.get('content-type') || 'text/plain');
       if (/\.(js|css)$/.test(url.pathname)) res.setHeader('Cache-Control', 'public, max-age=3600');
       if (url.pathname === '/__legacy-page') {
-        const html = (await response.text()).replace(/\?v=v0.3.0/g, '')
+        const html = (await response.text()).replace(/\?v=v0.3.1/g, '')
           .replace(/  window.addEventListener\('load', \(\) => navigator.serviceWorker.register[^\n]+/, '');
         return res.end(html);
       }
