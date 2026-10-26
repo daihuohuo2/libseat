@@ -1,0 +1,15 @@
+.watch-panel { border-bottom:1px solid var(--line); padding:14px 0; margin-bottom:14px; }
+.watch-panel h3 { font-size:14px; }
+.watch-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+#watchTarget { flex:1; min-width:120px; font-size:12px; overflow-wrap:anywhere; }
+.watch-controls button { font-size:12px; padding:7px 10px; }
+#watchMessage:empty { display:none; }
+#watchMessage { margin-top:8px; }
+#watchMessage[data-error=true], #watchInputError { color:var(--err); }
+#watchHistory { font-size:12px; margin-top:8px; }
+#watchEvents { max-height:150px; overflow:auto; }
+#watchDialog { width:min(470px,calc(100vw - 24px)); max-height:85vh; overflow:auto; }
+#watchDialog p { margin:12px 0; line-height:1.7; }
+#watchSeatInput { width:100%; margin-top:6px; }
+#mapSeats .seat-watch-target { outline:2px dashed #996814; outline-offset:2px; }
+@media(max-width:740px) { .watch-controls button { min-height:44px; } }

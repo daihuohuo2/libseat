@@ -8,6 +8,7 @@ const assets = ['index.html','warm-study.css','warm-study.js','study-font.css','
 assets.push('seat-map.css', 'seat-map.js');
 assets.push('booking-management.css', 'booking-management-ui.js', 'renewal.css', 'renewal-ui.js');
 assets.push('compact-ui.css');
+assets.push('seat-watch.css', 'seat-watch-ui.js');
 assets.push('area-seat-prefs.js', 'area-seat-prefs-ui.js', 'area-seat-prefs.css');
 for (const name of assets) fs.copyFileSync(path.join(root, 'public', name), path.join(out, name));
 for (const name of ['engine-runtime.js','mobile-bridge.js','mobile-ui.js','mobile.css']) fs.copyFileSync(path.join(__dirname,'web',name),path.join(out,name));
@@ -18,7 +19,7 @@ html = html.replace('</head>','<link rel="stylesheet" href="/mobile.css">\n</hea
 html = html.replace("if('serviceWorker' in navigator && location.protocol.startsWith('http'))",'if(false)');
 fs.writeFileSync(path.join(out,'index.html'),html);
 let bundle = '';
-for (const name of ['public/area-seat-prefs.js','seat-prefs.js','booking-store.js','booking-management.js','renewal.js','booking-window.js','booking-protocol.js','reservation-records.js','server.js','android-demo.js']) {
+for (const name of ['public/area-seat-prefs.js','seat-prefs.js','booking-store.js','booking-management.js','renewal.js','seat-watch.js','booking-window.js','booking-protocol.js','reservation-records.js','server.js','android-demo.js']) {
   const file = name === 'android-demo.js' ? path.join(__dirname,'web',name) : path.join(root,name);
   const src = fs.readFileSync(file,'utf8').replace(/^#!.*\r?\n/,'');
   bundle += `defineModule(${JSON.stringify('./'+name)}, function(module, exports, require, __dirname) {\n${src}\n});\n`;

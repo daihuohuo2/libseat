@@ -61,7 +61,7 @@ test('segment unavailable blocks activation without releasing the existing seat'
 });
 test('static code revalidates and versioned asset URLs serve the current map library', async t => {
   const f = await fixture(t);
-  for (const url of ['/', '/sw.js', '/seat-map.js?v=v0.2.1', '/seat-map.css', '/manifest.webmanifest']) {
+  for (const url of ['/', '/sw.js', '/seat-map.js?v=v0.3.0', '/seat-map.css', '/manifest.webmanifest']) {
     const r = await fetch(f.base + url);
     assert.equal(r.status, 200, url); assert.equal(r.headers.get('cache-control'), 'no-cache', url);
     if (url.startsWith('/seat-map.js')) assert.match(await r.text(), /isMine/);

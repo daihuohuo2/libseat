@@ -11,14 +11,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- Versioned URLs also bypass caches left by older running servers. Keep in sync with sw.js. -->
-<link rel="stylesheet" href="/study-font.css?v=v0.2.1">
-<link rel="stylesheet" href="/warm-study.css?v=v0.2.1">
-<link rel="stylesheet" href="/desktop-study.css?v=v0.2.1">
-<link rel="stylesheet" href="/booking-celebration.css?v=v0.2.1">
-<link rel="stylesheet" href="/renewal.css?v=v0.2.1">
-<link rel="stylesheet" href="/seat-map.css?v=v0.2.1">
-<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.2.1">
-<link rel="stylesheet" href="/compact-ui.css?v=v0.2.1">
+<link rel="stylesheet" href="/study-font.css?v=v0.3.0">
+<link rel="stylesheet" href="/warm-study.css?v=v0.3.0">
+<link rel="stylesheet" href="/desktop-study.css?v=v0.3.0">
+<link rel="stylesheet" href="/booking-celebration.css?v=v0.3.0">
+<link rel="stylesheet" href="/renewal.css?v=v0.3.0">
+<link rel="stylesheet" href="/seat-map.css?v=v0.3.0">
+<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.3.0">
+<link rel="stylesheet" href="/compact-ui.css?v=v0.3.0">
+<link rel="stylesheet" href="/seat-watch.css?v=v0.3.0">
 </head>
 <body>
 <header class="topbar">
@@ -49,6 +50,12 @@
       <p id="taskFeedback" class="hint" role="status" aria-live="polite"></p>
     </aside>
     <section class="map-panel surface" aria-label="实时座位地图">
+      <section class="watch-panel" aria-label="盯指定座位">
+        <div class="section-heading"><h3>盯指定座位</h3><span id="watchState" class="pill">未开启</span></div>
+        <div class="watch-controls"><span id="watchTarget">未设置目标</span><button id="watchChoose" class="text-button">选择座位</button><button id="watchStart" class="outline" disabled>开始盯座</button><button id="watchStop" class="danger" hidden>停止盯座</button><button id="watchCheck" class="outline" hidden>核实结果</button></div>
+        <p id="watchMessage" class="hint" role="status"></p>
+        <details id="watchHistory" hidden><summary>盯座记录</summary><div id="watchEvents" class="booking-details hint"></div></details>
+      </section>
       <div class="map-heading"><div><h2 id="mapTitle">座位地图</h2><p id="mapSubtitle" class="section-caption">选择区域</p></div><div class="btns"><button id="btnMySeat" class="text-button" hidden>我的座位</button><button id="btnMapRefresh" class="text-button" title="刷新预约、空位和座位地图">刷新座位</button></div></div>
       <div id="mapLegend" class="legend"></div>
       <div id="mapLoadHelp" class="warnbox" hidden role="status" style="margin-bottom:12px">
@@ -91,6 +98,7 @@
   <div class="section-heading"><h2 id="helpTitle">使用帮助</h2><button id="btnCloseHelp" class="text-button">关闭</button></div>
   <h3>抢座</h3><p>先登录，选择区域并加入抢选名单，再点击“开始抢座”。名单内区域没有先后优先级，任一区域有空位即可尝试。勾选“仅观察空位”时不会提交预约。</p>
   <h3>座位偏好</h3><p>支持逐个点选、输入编号或范围（如 149, 160–170），也可选择不限座位。优先座位不可用时，会尝试同一区域的其他空位。常用配置可以保存为方案。</p>
+  <h3>盯指定座位</h3><p>先在地图选择区域，再点“选择座位”指定一个编号，关闭仅观察后开启。仅盯今天的这个座位，不会选择其他空位。没有预约时直接抢；未签到时取消旧预约再换，已签到或临时签离时完全签离再换。目标尚不可约时保留原座位。换座存在失位风险，成功后仍需按官网要求签到。盯座与普通抢座、定时重约互斥，跨天或登录变化后会暂停，重启后需重新开启。</p>
   <h3>定时重约</h3><p>选择当前预约或下次预约，填写今天的预计到馆时间，滑动选择 30～59 分钟的间隔后开启，默认 50 分钟。运行中先停止再修改。每次按实际预约时间重新计时，到馆时间到达或官网已签到时停止。</p><p>整段预约使用官网时段编号，结束时间仍以官网时段为准；自定义预约则按当前时间顺延。取消后座位可能被他人预约，签到期限以官网为准，接近 59 分钟时请留出网络处理时间。电脑需保持开机、联网且不休眠；手机版需允许后台运行。</p>
   <h3>我的座位与签离</h3><p>红色表示你的有效预约。点击“我的座位”可定位；悬停座位可看完整编号，地图支持缩放和滚动。未签到时可取消预约，签到后可临时签离或完全签离；临时签离须按时返回签到。</p>
   <h3>状态与刷新</h3><p>预约结束后首页自动清除标记，历史记录保留。重新登录或返回应用时会同步最新状态；“刷新座位”可同时更新预约、空位和地图。预约操作超时后请刷新核实，程序不会重复提交。</p>
@@ -118,13 +126,13 @@
   <form method="dialog"><button autofocus>知道了</button></form>
   </div>
 </dialog>
-<script src="/booking-notifications.js?v=v0.2.1"></script>
-<script src="/booking-celebration.js?v=v0.2.1"></script>
-<link rel="stylesheet" href="/booking-management.css?v=v0.2.1">
-<script src="/booking-management-ui.js?v=v0.2.1"></script>
-<script src="/renewal-ui.js?v=v0.2.1"></script>
-<script src="/seat-map.js?v=v0.2.1"></script>
-<script src="/area-seat-prefs.js?v=v0.2.1"></script>
+<script src="/booking-notifications.js?v=v0.3.0"></script>
+<script src="/booking-celebration.js?v=v0.3.0"></script>
+<link rel="stylesheet" href="/booking-management.css?v=v0.3.0">
+<script src="/booking-management-ui.js?v=v0.3.0"></script>
+<script src="/renewal-ui.js?v=v0.3.0"></script>
+<script src="/seat-map.js?v=v0.3.0"></script>
+<script src="/area-seat-prefs.js?v=v0.3.0"></script>
 <script>
 const $ = id => document.getElementById(id);
 let polling = null;
@@ -135,7 +143,7 @@ function api(path, body, method){
     method: method || (body ? 'POST' : 'GET'),
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(['/api/tree', '/api/seats', '/api/areas', '/api/areas-of-storey'].includes(path) ? 30000 : 15000)
+    signal: AbortSignal.timeout(['/api/watch-start', '/api/watch-check'].includes(path) ? 45000 : ['/api/tree', '/api/seats', '/api/areas', '/api/areas-of-storey'].includes(path) ? 30000 : 15000)
   }).then(r => { if(!r.ok) throw new Error('服务响应异常（' + r.status + '）'); return r.json(); });
 }
 
@@ -682,9 +690,10 @@ function renderSeatMap(r, recenter = false){
   canvas.innerHTML = layout.seats.map(item => {
     const s = item.seat, mine = SeatMap.isMine(s, r, mapBookingStatus);
     const status = mine ? { name: '我的预约', className: 'mine' } : SeatMap.status(s.status), label = SeatMap.label(s.no);
-    const description = escapeHtml(s.no + ' · ' + (status.className === 'unknown' ? (s.statusName || status.name) : status.name));
+    const watched = window.SeatWatchUI?.isTarget(s, r);
+    const description = escapeHtml(s.no + ' · ' + (status.className === 'unknown' ? (s.statusName || status.name) : status.name) + (watched ? ' · 盯座目标' : ''));
     const fontSize = Math.max(7, Math.min(12, 14 * scale, (layout.seatWidth * scale - 3) / (Math.max(3, label.length) * 0.65)));
-    return '<div class="seat seat-' + status.className + '" data-no="' + escapeHtml(s.no) + '"'
+    return '<div class="seat seat-' + status.className + (watched ? ' seat-watch-target' : '') + '" data-no="' + escapeHtml(s.no) + '"'
       + ' role="img" aria-label="' + description + '" title="' + description + '"'
       + ' style="left:' + (offsetX + item.x * scale).toFixed(2) + 'px;top:' + (offsetY + item.y * scale).toFixed(2) + 'px;'
       + 'width:' + (layout.seatWidth * scale).toFixed(2) + 'px;height:' + (layout.seatHeight * scale).toFixed(2) + 'px;'
@@ -936,6 +945,7 @@ async function tick(){
     // Switch action identity before awaiting notification I/O for the new reservation.
     BookingManagementUI.render(s);
     window.MobileUI?.render(s);
+    window.SeatWatchUI?.render(s);
     if(s.booking){
       if(s.success && !claimedPageBookings.has(s.booking.id)){
         const claim = await api('/api/notification-claim', { id: s.booking.id, channel: 'page' });
@@ -1119,8 +1129,17 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
   <p id="seatPrefMessage" class="hint" role="status" aria-live="polite"></p>
   <div class="btns"><button type="button" id="seatPrefSave">保存偏好</button></div>
 </dialog>
-<script src="/area-seat-prefs-ui.js?v=v0.2.1"></script>
-<script src="/warm-study.js?v=v0.2.1"></script>
-<script src="/desktop-study.js?v=v0.2.1"></script>
+<script src="/area-seat-prefs-ui.js?v=v0.3.0"></script>
+<dialog id="watchDialog" aria-labelledby="watchTitle">
+  <div class="section-heading"><h2 id="watchTitle">指定一个座位</h2><button id="watchClose" class="text-button">关闭</button></div>
+  <p id="watchArea" class="hint"></p>
+  <label for="watchSeatInput">座位编号</label><input id="watchSeatInput" list="watchSeatOptions" placeholder="完整编号或尾号，例如 048" autocomplete="off"><datalist id="watchSeatOptions"></datalist>
+  <p class="hint">可指定当前被占用的座位。仅盯这一个，不选其他座位。更换区域请先关闭此窗口，在地图切换。</p>
+  <p class="warnbox">目标可约后会取消未签到预约，或完全签离已签到座位，再预约目标。释放后仍可能被他人抢先预约，原座位无法保证保留。</p>
+  <p id="watchInputError" class="hint" role="alert"></p><button id="watchSave" class="full-width">设为盯座目标</button>
+</dialog>
+<script src="/seat-watch-ui.js?v=v0.3.0"></script>
+<script src="/warm-study.js?v=v0.3.0"></script>
+<script src="/desktop-study.js?v=v0.3.0"></script>
 </body>
 </html>

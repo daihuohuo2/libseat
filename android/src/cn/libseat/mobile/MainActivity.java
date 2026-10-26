@@ -128,7 +128,7 @@ public class MainActivity extends Activity {
             if(!path.matches("/api/(?:[a-z-]+|renewal/(?:start|stop|check))") || (!method.equals("GET") && !method.equals("POST")) || body.length()>2000000) {
                 page.evaluateJavascript("mobileResult("+id+",400,"+JSONObject.quote("{\"ok\":false,\"message\":\"无效请求\"}")+")",null); return;
             }
-            try { if(path.equals("/api/start") || path.equals("/api/renewal/start")) service.enterForeground(); }
+            try { if(path.equals("/api/start") || path.equals("/api/renewal/start") || path.equals("/api/watch-start")) service.enterForeground(); }
             catch(Exception e) { page.evaluateJavascript("mobileResult("+id+",200,"+JSONObject.quote("{\"ok\":false,\"message\":\"系统不允许启动后台任务，请返回应用后重试\"}")+")",null); return; }
             service.dispatch(path,method,body,(code,text)->{ if(page==ui) page.evaluateJavascript("mobileResult("+id+","+code+","+JSONObject.quote(text)+")",null); });
         }); }

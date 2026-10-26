@@ -73,10 +73,10 @@ class BookingManagement {
     this.view = { bookingId: booking.id, state: result.state, label: result.label, actions: result.actions,
       tip: result.tip, checkedAt: Date.now(), message: pending && !resolved ? '上次操作结果仍待确认，未重复发送。请稍后刷新或到官网核实。' : '' };
   }
-  refresh(force = false) {
-    if (this.refreshPromise) return force ? this.refreshPromise.then(() => this.refresh(true)) : this.refreshPromise;
+  refresh(force = false, owner) {
+    if (this.refreshPromise) return force ? this.refreshPromise.then(() => this.refresh(true, owner)) : this.refreshPromise;
     const booking = this.deps.booking();
-    if (!booking || this.busy || this.deps.unavailable() || !force && Date.now() - this.lastAttempt < 30000) return Promise.resolve(this.status());
+    if (!booking || this.busy || this.deps.unavailable(owner) || !force && Date.now() - this.lastAttempt < 30000) return Promise.resolve(this.status());
     this.checking = true; this.lastAttempt = Date.now();
     const token = this.deps.token();
     this.refreshPromise = (async () => {
@@ -91,9 +91,9 @@ class BookingManagement {
     })();
     return this.refreshPromise;
   }
-  async act({ id, action, points }) {
+  async act({ id, action, points }, { owner, beforeSend } = {}) {
     if (!ACTIONS[action]) throw Error('不支持的预约操作');
-    if (this.blocked() || this.deps.unavailable()) throw Error('预约操作进行中或结果待核实，请稍后刷新');
+    if (this.blocked() || this.deps.unavailable(owner)) throw Error('预约操作进行中或结果待核实，请稍后刷新');
     let booking = this.deps.booking();
     if (!booking || booking.id !== id || TERMINAL.includes(booking.remoteState)) throw Error('预约已变化，请刷新后再操作');
     this.busy = true;
@@ -102,7 +102,7 @@ class BookingManagement {
     try {
       this.deps.stopRenewal();
       const result = await this.read(booking);
-      if (this.deps.booking()?.id !== id) throw Error('预约已变化，请刷新后再操作');
+      if (this.deps.booking()?.id !== id || this.deps.token() !== token) throw Error('预约或登录已变化，请刷新后再操作');
       this.apply(booking, result); booking = this.deps.booking();
       if (!result.actions.includes(action)) throw Error('官网当前状态不允许' + ACTIONS[action] + '，已更新预约信息');
       const body = { id: String(result.record.id) };
@@ -114,7 +114,8 @@ class BookingManagement {
         }
       }
       const response = await this.deps.send(action, body, () => {
-        if (this.deps.booking()?.id !== id || this.deps.token() !== token || this.deps.unavailable()) throw Error('预约或登录状态已变化，请刷新后重试');
+        if (this.deps.booking()?.id !== id || this.deps.token() !== token || this.deps.unavailable(owner)) throw Error('预约或登录状态已变化，请刷新后重试');
+        if (beforeSend) beforeSend();
         this.store.write({ ...this.store.data, pendingAction: { bookingId: id, recordId: body.id, action, startedAt: Date.now() } });
         sent = true;
       });

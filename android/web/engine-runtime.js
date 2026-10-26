@@ -134,6 +134,7 @@
         const s = await androidCall('/api/status');
         Native.status(JSON.stringify(s));
         if (s.renewal?.notice) Native.renewalNotice(JSON.stringify(s.renewal.notice));
+        if (s.seatWatch?.notice) Native.renewalNotice(JSON.stringify({ ...s.seatWatch.notice, kind:'watch' }));
         if (s.success && s.booking && Native.notificationsAllowed()) {
           const result = await androidCall('/api/notification-claim', { id: s.booking.id, channel: 'desktop' });
           if (result.claimed) Native.bookingNotice(JSON.stringify(s.booking));

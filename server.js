@@ -22,7 +22,8 @@ const { validateBookingWindow } = require('./booking-window.js');
 const { selectedAreaIds, resolveBookingRule, resolveRenewalRule, validateSubmission, orderBody } = require('./booking-protocol.js');
 const { currentRecordsSource, recordsEndpoint, matchesRecord } = require('./reservation-records.js');
 const { Renewal } = require('./renewal.js');
-const { BookingManagement } = require('./booking-management.js');
+const { BookingManagement, describe, findBooking } = require('./booking-management.js');
+const { SeatWatch } = require('./seat-watch.js');
 
 const BASE = 'https://libzw.csu.edu.cn';
 const AES_IV = 'ZZWBKJ_ZHIHUAWEI';
@@ -576,12 +577,13 @@ async function reconcileBooking() {
   finally { state.checkingBooking = false; }
 }
 
+let seatWatch = null;
 const renewal = new Renewal(process.env.LIBSEAT_RENEWAL_FILE || path.join(path.dirname(CONFIG_FILE), 'renewal.json'), {
   config: loadConfig,
   stopSearch: () => { state.stopFlag = true; },
   booking: () => state.success ? state.booking : null,
   resolvedBooking: id => bookingStore.data.history.find(b => b.id === id),
-  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError || management.blocked(),
+  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError || management.blocked() || !!seatWatch?.blocks(),
   records: () => fetchOwnReservations(loadConfig()),
   prepare: async (booking, window) => {
     const cfg = loadConfig();
@@ -645,7 +647,8 @@ const management = new BookingManagement(bookingStore, {
   booking: () => state.booking,
   token: () => loadConfig().token,
   update: booking => { state.booking = booking; state.success = booking.outcome === 'success'; },
-  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError
+  unavailable: owner => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError
+    || !!(seatWatch?.busy && owner !== seatWatch)
     || renewal.busy || !!renewal.error || ['cancel-unknown', 'booking-unknown'].includes(renewal.job?.phase),
   stopRenewal: () => { if (renewal.job?.active) renewal.stop(); },
   records: () => fetchOwnReservations(loadConfig()),
@@ -657,11 +660,113 @@ const management = new BookingManagement(bookingStore, {
   // Official AppointmentItem: cancel({id}); leave/checkout({id, points}) with AES.
   send: (action, body, beforeSend) => api('/v4/space/' + action, body, loadConfig().token, action !== 'cancel', { priority: 'high', beforeSend })
 });
+let watchLocation = null;
+function saveWatchLocation(points) {
+  if (Number.isFinite(points?.lat) && Number.isFinite(points?.lng) && Math.abs(points.lat) <= 90 && Math.abs(points.lng) <= 180)
+    watchLocation = { lat: points.lat, lng: points.lng, at: Date.now() };
+}
+async function inspectWatchTarget(input, cfg, date) {
+  const areaId = String(input?.areaId || '');
+  if (!areaId || areaId.length > 100 || !(input.seatId || input.seat)) throw Error('请先选择地图区域并指定一个座位');
+  const map = await fetchSpaceMap(cfg, areaId, date, 'high');
+  if (map?.code !== 0) throw Error(map?.message || '无法读取目标区域的预约规则');
+  const rule = resolveBookingRule(map.data, cfg, date, effectiveWindow(cfg, 'book'));
+  const seats = await fetchSeats(cfg, areaId, date, 'high', rule);
+  if (seats?.code !== 0 || !Array.isArray(seats.data?.list)) throw Error(seats?.message || '无法读取目标座位');
+  const wanted = String(input.seat || '').trim().toUpperCase();
+  const found = seats.data.list.filter(s => input.seatId ? String(s.id) === String(input.seatId)
+    : String(s.no).toUpperCase() === wanted || /^\d+$/.test(wanted) && Number(String(s.no).match(/\d+$/)?.[0]) === Number(wanted));
+  if (found.length !== 1 || !found[0].id) throw Error('无法唯一确定座位，请输入本区域完整座位编号');
+  const s = found[0];
+  return { target: { areaId, seatId: String(s.id), seat: String(s.no), area: map.data.name_merge || cfg.areaNames?.[areaId] || areaId },
+    available: String(s.status) === '1', rule };
+}
+function adoptWatchBooking(booking) {
+  const known = bookingStore.data.history.find(b => b.id === booking.id);
+  if (!known || JSON.stringify(known) !== JSON.stringify(booking)) {
+    const claims = new Set(bookingStore.data.claims);
+    // Importing an existing seat must not trigger a "just grabbed" notification.
+    claims.add('page:' + booking.id); claims.add('desktop:' + booking.id);
+    bookingStore.write({ ...bookingStore.data, claims: [...claims].slice(-150),
+      history: [booking, ...bookingStore.data.history.filter(b => b.id !== booking.id)].slice(0, 50) });
+  }
+  state.booking = booking; state.success = booking.outcome === 'success';
+}
+async function currentWatchBooking(cfg, date) {
+  const records = await fetchOwnReservations(cfg);
+  const response = await api('/v4/index/subscribe', {}, cfg.token, false, { priority: 'high' });
+  if (response?.code !== 0 || !Array.isArray(response.data)) throw Error('无法核实官网当前座位，未释放原座位');
+  if (loadConfig().token !== cfg.token) throw Error('登录状态已变化');
+  const current = response.data.filter(r => String(r.type) === '1');
+  const terminal = r => ['6', '4', '8', '12', '34', '35'].includes(String(r.status));
+  const live = records.filter(r => !terminal(r) && (!r.endTime || !bookingEnded({ date: String(r.endTime).slice(0, 10), endTime: String(r.endTime).slice(11, 16) })));
+  if (live.length > 1 || live.some(r => r.wait_id)) throw Error('有多笔有效预约或排队记录，无法确定应换出的座位，请在官网核实');
+  if (!live.length) {
+    if (current.length) throw Error('官网当前座位与预约记录不一致，请稍后核实');
+    if (state.success && state.booking) {
+      const old = findBooking(records, state.booking);
+      if (!old || !terminal(old)) throw Error('原预约尚未确认结束，未预约其他座位');
+      management.apply(state.booking, { record: old, ...describe(old) });
+    }
+    return null;
+  }
+  const row = live[0], subscription = current.find(r => String(r.id) === String(row.id));
+  if (current.some(r => String(r.id) !== String(row.id))) throw Error('官网当前座位不唯一，请核实后再盯座');
+  const detail = describe(row, subscription);
+  if (!['reserved', 'signed', 'away'].includes(detail.state)) throw Error('无法识别当前预约状态，已保留原座位');
+  const known = bookingStore.data.history.find(b => findBooking([row], b));
+  const begin = String(row.beginTime || '').replace('T', ' ');
+  const end = String(row.endTime || '').replace('T', ' ');
+  if (begin.slice(0, 10) !== date || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(end)) throw Error('已有其他日期或时间不明的预约，未自动释放');
+  const seatId = String(row.seat_id || row.space || row.space_id || subscription?.space_id || known?.seatId || '');
+  const areaId = String(row.area_id || subscription?.area_id || known?.areaId
+    || (seatId === seatWatch?.job?.target.seatId ? seatWatch.job.target.areaId : ''));
+  if (!row.id || !seatId) throw Error('官网未提供完整的预约编号和座位信息');
+  return { ...detail, booking: { ...known, id: known?.id || 'official-' + String(row.id), officialId: String(row.id),
+    seatId, areaId, seat: String(row.name || row.no || row.spaceName || known?.seat || seatId),
+    area: String(row.nameMerge || row.areaName || known?.area || areaId), date,
+    startTime: begin.slice(11, 16), endTime: end.slice(11, 16), outcome: 'success', remoteState: detail.state } };
+}
+seatWatch = new SeatWatch(process.env.LIBSEAT_WATCH_FILE || path.join(path.dirname(CONFIG_FILE), 'seat-watch.json'), {
+  config: loadConfig,
+  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError
+    || renewal.blocksBooking() || management.blocked(),
+  inspect: inspectWatchTarget, current: currentWatchBooking, adopt: adoptWatchBooking,
+  pending: () => ({ booking: state.pendingBooking, action: bookingStore.data.pendingAction }),
+  resolved: id => bookingStore.data.history.find(b => b.id === id),
+  validate: (candidate, cfg, date) => { const reason = validateSubmission(cfg, date, candidate.rule); if (reason) throw Error(reason); },
+  release: (booking, action, beforeSend) => management.act({ id: booking.id, action,
+    points: watchLocation && Date.now() - watchLocation.at < 60000 ? watchLocation : {} }, { owner: seatWatch, beforeSend }),
+  reserve: (booking, candidate, cfg, beforeSend) => {
+    const body = orderBody(booking.seatId, booking.date, candidate.rule);
+    if (watchLocation && Date.now() - watchLocation.at < 60000)
+      body.points = { lat: watchLocation.lat, lng: watchLocation.lng, time: Math.floor(Date.now() / 1000) };
+    return api('/v4/space/confirm', body, cfg.token, true, { priority: 'high', beforeSend() {
+      try {
+        beforeSend();
+        if (booking.reserveType === '1') {
+          const now = new Date();
+          const start = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+          if (start > booking.startTime) booking.startTime = start;
+        }
+        booking.bookedAt = new Date().toISOString();
+        seatWatch.save({ ...seatWatch.job, attempt: booking });
+        bookingStore.setPending(booking); state.pendingBooking = booking;
+      } catch (e) { e.beforeSubmission = true; throw e; }
+    } });
+  },
+  booked: booking => completeBooking(booking, 'response'),
+  rejected: booking => { bookingStore.finish(booking, 'rejected'); state.pendingBooking = null; },
+  reconcileBooking,
+  reconcileRelease: () => management.refresh(true, seatWatch)
+});
+setInterval(() => seatWatch.tick().catch(e => log('盯座暂停：' + e.message, 'error')), 1000);
+
 function expireBooking() {
   const booking = state.booking;
   // An uncertain submission/action must still be reconciled, never silently discarded.
   if (!state.success || !bookingEnded(booking) || state.pendingBooking || state.checkingBooking
-      || state.running || management.blocked() || renewal.busy) return;
+      || state.running || management.blocked() || renewal.busy || seatWatch?.busy) return;
   const ended = { ...booking, outcome: 'completed', remoteState: 'completed', endedBy: 'time' };
   state.booking = ended; state.success = false;
   management.view = null;
@@ -1649,12 +1754,26 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { ok: true, renewal: renewal.status() });
     } catch (e) { return sendJson(res, { ok: false, message: e.message, renewal: renewal.status() }); }
   }
+  if (['/api/watch-start', '/api/watch-stop', '/api/watch-check', '/api/watch-location'].includes(p) && req.method === 'POST') {
+    if (req.headers?.origin && req.headers.origin !== 'http://' + req.headers.host) return sendJson(res, { ok: false, message: '请求来源不匹配' });
+    try {
+      const body = await readBody(req);
+      if (p === '/api/watch-start') { saveWatchLocation(body.points); await seatWatch.start(body); }
+      else if (p === '/api/watch-stop') seatWatch.stop();
+      else if (p === '/api/watch-check') await seatWatch.check();
+      else saveWatchLocation(body.points);
+      return sendJson(res, { ok: true, seatWatch: seatWatch.status() });
+    } catch (e) { return sendJson(res, { ok: false, message: e.message, seatWatch: seatWatch.status() }); }
+  }
   if (['/api/booking-state', '/api/booking-action'].includes(p) && req.method === 'POST') {
     if (req.headers?.origin && req.headers.origin !== 'http://' + req.headers.host) return sendJson(res, { ok: false, message: '请求来源不匹配' });
     try {
       const body = await readBody(req);
       if (p === '/api/booking-state') await management.refresh(true);
-      else await management.act(body);
+      else {
+        if (seatWatch.blocks()) throw Error('请先停止盯座并核实待处理结果，再操作当前预约');
+        await management.act(body);
+      }
       return sendJson(res, { ok: true, bookingManagement: management.status() });
     } catch (e) { return sendJson(res, { ok: false, message: e.message, bookingManagement: management.status() }); }
   }
@@ -1692,6 +1811,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/start' && req.method === 'POST') {
     const body = await readBody(req);
+    if (seatWatch.blocks()) return sendJson(res, { ok: false, message: '请先停止盯座并处理待核实结果' });
     if (management.blocked()) return sendJson(res, { ok: false, message: '预约操作进行中或结果待核实，请先刷新预约状态' });
     if (state.running) return sendJson(res, { ok: false, message: '已在运行中' });
     if (renewal.blocksBooking() && renewal.job?.phase !== 'armed') return sendJson(res, { ok: false, message: '定时重约计划正在管理预约，请先停止或核实计划' });
@@ -1728,7 +1848,7 @@ const server = http.createServer(async (req, res) => {
 
   if (p === '/api/stop' && req.method === 'POST') {
     state.stopFlag = true;
-    try { renewal.stop(); } catch (e) { return sendJson(res, { ok: false, message: e.message }); }
+    try { seatWatch.stop(); renewal.stop(); } catch (e) { return sendJson(res, { ok: false, message: e.message }); }
     return sendJson(res, { ok: true });
   }
 
@@ -1750,6 +1870,7 @@ const server = http.createServer(async (req, res) => {
       storageError: state.storageError,
       stopReason: state.stopReason || '',
       renewal: renewal.status(),
+      seatWatch: seatWatch.status(),
       logs: state.logs.slice(-200)
     });
   }

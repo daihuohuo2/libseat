@@ -61,6 +61,7 @@ public class FlowTest extends Instrumentation {
             writeDemo("config.json","{\"token\":\"android-demo\",\"dateMode\":\"today\",\"timeMode\":\"now\",\"verifyOnly\":false,\"autoRefresh\":false,\"areaIds\":[\"59\"],\"preferAreas\":[\"59\"]}");
             writeDemo("bookings.json","{\"version\":1,\"pending\":null,\"history\":[],\"claims\":[]}");
             writeDemo("renewal.json","{\"version\":1,\"job\":null}"); writeDemo("demo-records.json","[]");
+            writeDemo("seat-watch.json","{\"version\":1,\"job\":null}");
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             for(int i=0;i<150 && (activity.service==null || !activity.service.ready || activity.ui==null);i++) Thread.sleep(100);
             check(activity.service!=null && activity.service.ready,"engine must initialize without storage/bridge errors");
@@ -124,7 +125,21 @@ public class FlowTest extends Instrumentation {
             check(Boolean.TRUE.equals(js(page,"document.getElementById('renewalTiming').textContent==='' && document.getElementById('renewalStatus').textContent==='' && document.getElementById('renewalEvents').textContent!=='暂无记录。'")),"stopped previous renewal is visible only in its history");
             screenshot("mobile-refresh.png");
             book(); check(api("/api/status",null).getJSONObject("booking").getString("date").equals("2026-10-11"),"can book again the following morning");
-            result.putString("stream","PASS: Android WebView map, grab, renewal, cancel, sign/leave/checkout, login refresh, manual refresh, next-day native resume, retained history and new booking.\n");
+            closeDialogs(); click("btnDemoSignIn");
+            until(page,"document.getElementById('btnBookingDetails').textContent==='查看位置信息'");
+            js(engine,"window.watchFree=false;window.watchMutations=[];(()=>{const m=require('./android-demo.js'),respond=m.respond;m.respond=function(p,b){if(/\\/(checkout|cancel|confirm)$/.test(p))watchMutations.push({path:p,body:b});const r=respond(p,b);if(p==='/v4/Space/seat'){const target=r.data.list.find(s=>s.no==='XF5A048');if(target)target.status=watchFree?'1':'6';}return r;};})();true");
+            promise(page,"refreshAllSeats()"); click("watchChoose");
+            js(page,"document.getElementById('watchSeatInput').value='048';true"); click("watchSave"); click("watchStart");
+            until(page,"document.getElementById('watchMessage').textContent.includes('暂不可约')");
+            check(Boolean.TRUE.equals(js(engine,"watchMutations.length===0")),"occupied target never releases current seat or books other free seats");
+            Thread.sleep(3500); check(activity.service.foreground && activity.service.watching,"watch task needs native foreground service");
+            getTargetContext().getSystemService(android.app.NotificationManager.class).cancel(2);
+            js(page,"document.querySelector('.watch-panel').scrollIntoView({block:'start'});true"); Thread.sleep(250); screenshot("mobile-watch.png");
+            js(engine,"window.watchFree=true;window.flowNow+=8000;true"); js(page,"window.flowNow+=8000;true");
+            until(page,"document.getElementById('watchState').textContent==='已完成' && document.getElementById('bookingSeat').textContent==='XF5A048'");
+            check(Boolean.TRUE.equals(js(engine,"watchMutations.length===2 && watchMutations[0].path==='/v4/space/checkout' && watchMutations[1].path==='/v4/space/confirm' && watchMutations[1].body.seat_id==='demo-XF5A048'")),"exactly one checkout followed by the chosen target reservation");
+            check(api("/api/status",null).getBoolean("success"),"target booking succeeded");
+            result.putString("stream","PASS: Android WebView map, grab, renewal, cancel, sign/leave/checkout, login/next-day refresh, exact-seat watch, foreground service, checked-in checkout then target booking.\n");
             finish(Activity.RESULT_OK,result);
         } catch(Throwable e) { result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(e)); finish(Activity.RESULT_CANCELED,result); }
     }

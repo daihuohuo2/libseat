@@ -10,6 +10,8 @@ node_modules/
 /bookings.json.*
 /renewal.json
 /renewal.json.*
+/seat-watch.json
+/seat-watch.json.*
 /browser-data/
 /.app-profile/
 .env

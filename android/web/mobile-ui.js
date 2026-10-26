@@ -21,7 +21,8 @@
     const s = await api('/api/status');
     if (s.running || s.checkingBooking || s.pendingBooking || s.renewal?.active || s.renewal?.busy
       || ['cancel-unknown','booking-unknown'].includes(s.renewal?.phase) || s.bookingManagement?.busy
-      || s.bookingManagement?.checking || s.bookingManagement?.pendingAction) { alert('请先停止任务并处理待确认预约，再切换模式。'); return; }
+      || s.bookingManagement?.checking || s.bookingManagement?.pendingAction || s.seatWatch?.active || s.seatWatch?.busy
+      || s.seatWatch?.phase?.endsWith('unknown')) { alert('请先停止任务并处理待确认预约，再切换模式。'); return; }
     Mobile.switchMode(!demo);
   };
   bar.append(label, toggle); document.querySelector('.app-shell').prepend(bar);

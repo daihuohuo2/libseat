@@ -104,5 +104,5 @@
     el('btnRenewalStop').onclick = () => action('stop');
     el('btnRenewalCheck').onclick = () => action('check');
   });
-  window.RenewalUI = { render };
+  window.RenewalUI = { render, notice };
 })();
