@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { retryableRead } = require('./request-errors');
 const today = now => new Date(now + 8 * 3600000).toISOString().slice(0, 10);
 const uncertain = phase => ['releasing', 'release-unknown', 'booking', 'booking-unknown'].includes(phase);
 const signature = c => JSON.stringify(['dateMode', 'timeMode', 'startTime', 'endTime', 'axisStart', 'axisEnd', 'axisStep', 'axisMaxMin', 'verifyOnly'].map(k => c[k]));
@@ -12,7 +13,7 @@ class SeatWatch {
   constructor(file, deps, now = () => Date.now()) {
     this.file = file; this.deps = deps; this.now = now;
     this.job = null; this.error = ''; this.busy = false; this.generation = 0;
-    this.sessionToken = ''; this.nextAt = 0;
+    this.sessionToken = ''; this.nextAt = 0; this.readFailures = 0; this.currentCheckedAt = null;
     try {
       if (fs.existsSync(file)) {
         const data = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -64,7 +65,7 @@ class SeatWatch {
         phase: 'watching', events: [], notice: { id: crypto.randomUUID(), event:'started', level:'info', title:'盯座任务正在运行',
           message:'正在盯 ' + result.target.seat + ' · ' + result.target.area + '。目标空闲后按当前预约状态自动预约或换座。' },
         message: '正在盯 ' + result.target.seat + '，只预约这个座位。' });
-      this.sessionToken = cfg.token; this.nextAt = 0;
+      this.sessionToken = cfg.token; this.nextAt = 0; this.readFailures = 0; this.currentCheckedAt = null;
     } finally { this.busy = false; }
   }
   stop() {
@@ -84,12 +85,18 @@ class SeatWatch {
     if (!this.job?.active || this.busy || this.error || this.now() < this.nextAt || this.deps.unavailable()) return;
     this.busy = true;
     const generation = this.generation, cfg = this.deps.config();
-    let released = false, attemptedBooking = null;
+    let released = false, attemptedBooking = null, retryDelay = 0;
     try {
       this.guard(generation, cfg);
       let candidate = await this.deps.inspect(this.job.target, cfg, this.job.date);
+      const observedAt = this.now();
       this.guard(generation, cfg);
+      if (!candidate.available && this.currentCheckedAt !== null && this.now() - this.currentCheckedAt < 30000) {
+        this.readFailures = 0;
+        this.set({ lastCheck: this.now() }, '正在盯 ' + this.job.target.seat + '：暂不可约，保留当前座位。'); return;
+      }
       const current = await this.deps.current(cfg, this.job.date);
+      this.currentCheckedAt = this.now();
       this.guard(generation, cfg);
       if (current) this.deps.adopt(current.booking);
       if (current && String(current.booking.seatId) === this.job.target.seatId && String(current.booking.areaId) === this.job.target.areaId) {
@@ -102,7 +109,7 @@ class SeatWatch {
         const action = current.state === 'reserved' ? 'cancel' : ['signed', 'away'].includes(current.state) ? 'checkout' : '';
         if (!action || !current.actions.includes(action)) throw Error('官网当前状态不允许取消或完全签离，已保留当前座位');
         // Recheck the exact target after reading current reservation/status/permissions.
-        candidate = await this.deps.inspect(this.job.target, cfg, this.job.date);
+        candidate = await this.deps.inspect(this.job.target, cfg, this.job.date, { fresh:true });
         this.guard(generation, cfg);
         if (!candidate.available) { this.set({}, '目标刚被占用，保留当前座位，继续盯座。'); return; }
         const inspectedAt = this.now();
@@ -115,6 +122,7 @@ class SeatWatch {
           });
         } catch (e) {
           const unknown = this.deps.pending().action;
+          if (!unknown && retryableRead(e)) throw e;
           this.set({ active: false, phase: unknown ? 'release-unknown' : 'paused' }, unknown
             ? '取消或完全签离结果待核实，未预约目标、未重复释放，请点击“核实结果”。' : e.message, true);
           return;
@@ -124,7 +132,7 @@ class SeatWatch {
         this.guard(generation, cfg);
       }
       // A fresh window is needed after release; never submit a rounded time from an earlier minute.
-      candidate = await this.deps.inspect(this.job.target, cfg, this.job.date);
+      if (released || this.now() - observedAt > 2000) candidate = await this.deps.inspect(this.job.target, cfg, this.job.date);
       this.guard(generation, cfg);
       if (!candidate.available) {
         this.set({ phase: 'watching' }, (released ? '原座位已释放；' : '') + '目标刚被占用，继续只盯这个座位。', released); return;
@@ -160,9 +168,13 @@ class SeatWatch {
     } catch (e) {
       // Unknown reservation writes are represented by BookingStore even if a later journal write fails.
       const phase = this.deps.pending().booking && attemptedBooking ? 'booking-unknown' : 'paused';
-      if (!this.error) this.set({ active: false, phase }, (released ? '原座位已释放；' : '') + e.message, true);
+      if (!this.error && !attemptedBooking && !released && this.job.active && generation === this.generation && retryableRead(e)) {
+        retryDelay = Math.min(30000, 2000 * 2 ** Math.min(this.readFailures++, 4));
+        this.set({ phase:'watching', lastCheck:this.now() }, '查询暂时中断，' + retryDelay / 1000 + ' 秒后自动重试；原座位未释放。' + e.message);
+      } else if (!this.error) this.set({ active: false, phase }, (released ? '原座位已释放；' : '') + e.message, true);
     } finally {
-      this.nextAt = this.now() + Math.max(2, Math.min(120, Number(cfg.interval) || 6)) * 1000;
+      if (!retryDelay) this.readFailures = 0;
+      this.nextAt = this.now() + (retryDelay || Math.max(1, Math.min(120, Number(cfg.interval) || 6)) * 1000);
       this.busy = false;
     }
   }

@@ -13,7 +13,10 @@ exports.respond=async(route,body)=>{
     flag_leave:r.status==='32'?1:0,SYS_WEB_MYYUYUE_LEAVE:1,SYS_WEB_MYYUYUE_RIGHTBACK:1}))};
   if(route==='/v4/space/index')return {code:0,data:{premises:[{id:'1',name:'测试馆'}],storey:[{name:'五楼',list:[{id:'5',parentId:'1'}]}]}};
   if(route==='/v4/space/pick')return {code:0,data:{area:[{id:'59',name:'A区',nameMerge:'测试馆-五楼-A区',free_num:1,total_num:3}]}};
-  if(route==='/v4/Space/map')return {code:0,data:{type:'1',name:'A区',name_merge:'测试馆-五楼-A区',date:{reserveType:'1',list:[{day:body.day,times:[{id:'segment',status:1,start:'08:00',end:'22:00'}]}]}}};
+  if(route==='/v4/Space/map'){
+    if(data.scenario==='map-abort')throw Object.assign(Error('aborted'),{name:'AbortError'});
+    return {code:0,data:{type:'1',name:'A区',name_merge:'测试馆-五楼-A区',date:{reserveType:'1',list:[{day:body.day,times:[{id:'segment',status:1,start:'08:00',end:'22:00'}]}]}}};
+  }
   if(route==='/v4/Space/seat')return {code:0,data:{list:[['old','XF5A001',live.some(r=>r.seat_id==='old')?'6':'1'],['target','XF5A048',data.available?'1':'6'],['other','XF5A006','1']].map(([id,no,status],i)=>({id,no,status,point_x:10+i*10,point_y:10,width:6,height:8}))}};
   if(['/v4/space/cancel','/v4/space/checkout'].includes(route)){
     const row=live.find(r=>r.id===body.id);if(!row)throw Error('wrong official record');

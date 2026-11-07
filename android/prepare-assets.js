@@ -19,7 +19,7 @@ html = html.replace('</head>','<link rel="stylesheet" href="/mobile.css">\n</hea
 html = html.replace("if('serviceWorker' in navigator && location.protocol.startsWith('http'))",'if(false)');
 fs.writeFileSync(path.join(out,'index.html'),html);
 let bundle = '';
-for (const name of ['public/area-seat-prefs.js','seat-prefs.js','booking-store.js','booking-management.js','renewal.js','seat-watch.js','booking-window.js','booking-protocol.js','reservation-records.js','server.js','android-demo.js']) {
+for (const name of ['public/area-seat-prefs.js','seat-prefs.js','booking-store.js','booking-management.js','request-errors.js','renewal.js','seat-watch.js','booking-window.js','booking-protocol.js','reservation-records.js','server.js','android-demo.js']) {
   const file = name === 'android-demo.js' ? path.join(__dirname,'web',name) : path.join(root,name);
   const src = fs.readFileSync(file,'utf8').replace(/^#!.*\r?\n/,'');
   bundle += `defineModule(${JSON.stringify('./'+name)}, function(module, exports, require, __dirname) {\n${src}\n});\n`;

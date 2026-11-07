@@ -127,6 +127,10 @@
       seatPlans: [{ id: 'demo-plan', name: '五楼安静自习', areas: ['59'], seats: [], mode: 'only' }], activePlanId: 'demo-plan'
     }));
     require('./server.js');
+    window.androidWakeRenewal = async () => {
+      try { await require('./server.js').wakeRenewal(); }
+      finally { Native.status(JSON.stringify(await androidCall('/api/status'))); }
+    };
     let checking = false;
     setInterval(async () => {
       if (checking) return; checking = true;

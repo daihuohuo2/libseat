@@ -43,6 +43,12 @@ public class FlowTest extends Instrumentation {
         android.graphics.Bitmap image=getUiAutomation().takeScreenshot();
         if(image!=null) try(FileOutputStream out=new FileOutputStream(new File(getTargetContext().getExternalFilesDir(null),name))) { image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out); }
     }
+    String shell(String command) throws Exception {
+        try(ParcelFileDescriptor fd=getUiAutomation().executeShellCommand(command);
+            FileInputStream in=new FileInputStream(fd.getFileDescriptor())) {
+            return new String(EngineService.readAll(in),StandardCharsets.UTF_8);
+        }
+    }
     void book() throws Exception {
         closeDialogs(); until(page,"!document.getElementById('btnStart').disabled");
         js(page,"document.querySelector('.mobile-selection').open=true;true");
@@ -82,11 +88,20 @@ public class FlowTest extends Instrumentation {
             String clock="(()=>{const RealDate=Date;window.flowNow=RealDate.parse('2026-10-10T08:00:00+08:00');window.Date=class extends RealDate{constructor(...a){super(...(a.length?a:[window.flowNow]));}static now(){return window.flowNow;}};return true;})()";
             js(engine,clock); js(page,clock);
             // Renewal captures its clock when the module starts, before the UI is ready.
-            js(engine,"(()=>{const p=require('./renewal.js').Renewal.prototype,start=p.start;p.start=function(options){this.now=()=>window.flowNow;return start.call(this,options);};return true;})()");
+            js(engine,"(()=>{const p=require('./renewal.js').Renewal.prototype,start=p.start;p.start=function(options){this.now=()=>window.flowNow;window.flowRenewal=this;return start.call(this,options);};return true;})()");
             js(page,"window.confirm=()=>true;navigator.geolocation.getCurrentPosition=(ok,fail)=>fail({code:1});true");
             promise(page,"loadConfig().then(()=>initMapBrowser(true))");
             until(page,"document.querySelectorAll('#mapSeats .seat').length===48 && !document.getElementById('mapLoadHelp').hidden===false");
             check(Boolean.TRUE.equals(js(page,"document.documentElement.scrollWidth<=innerWidth+1")),"mobile page must fit viewport");
+            // A booking made outside the app has no BookingStore entry. Refresh
+            // must discover it, paint it red and offer the official actions.
+            js(engine,"require('./android-demo.js').respond('/v4/space/confirm',{seat_id:'demo-XF5A015',day:'2026-10-10',segment:'demo-segment'});true");
+            promise(page,"refreshAllSeats()");
+            until(page,"!document.getElementById('bookingSummary').hidden && document.querySelector('#mapSeats [data-no=XF5A015]').classList.contains('seat-mine')");
+            check(api("/api/status",null).getJSONObject("booking").getString("reserveType").equals("1"),"external reservation imports segment metadata");
+            check(Boolean.FALSE.equals(js(page,"document.getElementById('bookingDialog').open")),"import is not a newly grabbed success popup");
+            click("btnBookingDetails"); until(page,"!document.getElementById('bookingAction-cancel').disabled"); click("bookingAction-cancel");
+            until(page,"document.getElementById('bookingSummary').hidden");
             book(); JSONObject first=api("/api/status",null).getJSONObject("booking"); closeDialogs();
             js(page,"document.getElementById('renewalArrival').value='14:00';document.getElementById('renewalInterval').value='30';document.getElementById('renewalInterval').dispatchEvent(new Event('input'));true");
             until(page,"!document.getElementById('btnRenewalStart').disabled"); click("btnRenewalStart");
@@ -95,10 +110,29 @@ public class FlowTest extends Instrumentation {
             check(api("/api/status",null).getJSONObject("renewal").getInt("intervalMinutes")==30,"slider must reach native engine");
             check(Boolean.FALSE.equals(js(page,"document.querySelector('.mobile-selection').open")),"successful booking collapses selection controls");
             js(page,"document.querySelector('.renewal-panel').scrollIntoView({block:'start'});true"); Thread.sleep(250); screenshot("mobile-renewal.png");
+            check(Boolean.TRUE.equals(js(page,"!!document.getElementById('btnBackgroundSettings')")),"background settings entry is present");
+            check(!activity.service.renewalAlarmKey.isEmpty(),"active renewal schedules native alarm");
+            js(engine,"window.renewalReadAbort=true;window.renewalWrites=[];(()=>{const records=flowRenewal.deps.records;flowRenewal.deps.records=async()=>{if(renewalReadAbort){renewalReadAbort=false;throw Object.assign(Error('aborted'),{name:'AbortError'});}return records();};const m=require('./android-demo.js'),respond=m.respond;m.respond=function(p,b){if(/\\/(cancel|confirm)$/.test(p))renewalWrites.push(p);return respond(p,b);};})();true");
+            runOnMainSync(()->activity.moveTaskToBack(true));
+            shell("input keyevent 223"); shell("dumpsys deviceidle force-idle");
+            check(!getTargetContext().getSystemService(PowerManager.class).isInteractive(),"renewal runs with screen off");
             js(engine,"window.flowNow+=30*60000+5000;true"); js(page,"window.flowNow+=30*60000+5000;true");
+            // Invoke the native alarm path even if uptime-based timers have not
+            // elapsed. The first read aborts; it must not release the old seat.
+            JSONObject alarmStatus=api("/api/status",null);
+            runOnMainSync(()->{activity.service.renewalAlarmKey="";activity.service.scheduleRenewalAlarm(alarmStatus,alarmStatus.optJSONObject("renewal"));});
+            until(engine,"!renewalReadAbort");
+            for(int i=0;i<150 && activity.service.lastRenewalWakeAt==0;i++) Thread.sleep(100);
+            statusForRetryCheck(api("/api/status",null));
+            check(Boolean.TRUE.equals(js(engine,"renewalWrites.length===0")),"read abort must not cancel original booking");
+            js(engine,"window.flowNow+=6000;true"); js(page,"window.flowNow+=6000;true");
             for(int i=0;i<120 && api("/api/status",null).getJSONObject("renewal").optInt("cycles")<1;i++) Thread.sleep(100);
             JSONObject status=api("/api/status",null);
             check(status.getJSONObject("renewal").getInt("cycles")==1,status.toString());
+            check(activity.service.lastRenewalWakeAt>0,"native renewal alarm was delivered while screen was off");
+            check(Boolean.TRUE.equals(js(engine,"renewalWrites.length===2 && renewalWrites[0].endsWith('/cancel') && renewalWrites[1].endsWith('/confirm')")),"locked renewal sends exactly one cancel and one confirmation");
+            shell("dumpsys deviceidle unforce"); shell("input keyevent 224"); shell("wm dismiss-keyguard");
+            runOnMainSync(()->activity.startActivity(new Intent(activity,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)));
             check(!first.getString("id").equals(status.getJSONObject("booking").getString("id")),"renewal must create new identity");
             check(first.getString("seat").equals(status.getJSONObject("booking").getString("seat")),"renewal keeps the same seat");
             until(page,"mapBookingStatus?.booking?.id==="+JSONObject.quote(status.getJSONObject("booking").getString("id"))+" && !tickPending");
@@ -155,15 +189,24 @@ public class FlowTest extends Instrumentation {
             getTargetContext().getSystemService(android.app.NotificationManager.class).cancel(2);
             js(page,"document.querySelector('.watch-panel').scrollIntoView({block:'start'});true"); Thread.sleep(250); screenshot("mobile-watch.png");
             runOnMainSync(()->activity.moveTaskToBack(true));
-            js(engine,"window.watchFree=true;window.flowNow+=8000;true"); js(page,"window.flowNow+=8000;true");
+            js(engine,"window.watchReadAbort=true;(()=>{const m=require('./android-demo.js'),respond=m.respond;m.respond=function(p,b){if(p==='/v4/Space/seat' && watchReadAbort){watchReadAbort=false;throw Object.assign(Error('aborted'),{name:'AbortError'});}return respond(p,b);};})();window.watchFree=true;window.flowNow+=8000;true"); js(page,"window.flowNow+=8000;true");
+            until(engine,"!watchReadAbort"); Thread.sleep(300);
+            JSONObject watchRetry=api("/api/status",null).getJSONObject("seatWatch");
+            check(watchRetry.getBoolean("active") && watchRetry.getString("message").contains("自动重试"),"background watch retries AbortError without pausing");
+            check(Boolean.TRUE.equals(js(engine,"watchMutations.length===0")),"aborted watch query keeps existing signed seat");
+            js(engine,"window.flowNow+=3000;true"); js(page,"window.flowNow+=3000;true");
             awaitNotification(2,"XF5A048");
             check(notification(5)==null,"finished task must remove stale running notification");
             runOnMainSync(()->activity.startActivity(new Intent(activity,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)));
             until(page,"document.getElementById('watchState').textContent==='已完成' && document.getElementById('bookingSeat').textContent==='XF5A048'");
             check(Boolean.TRUE.equals(js(engine,"watchMutations.length===2 && watchMutations[0].path==='/v4/space/checkout' && watchMutations[1].path==='/v4/space/confirm' && watchMutations[1].body.seat_id==='demo-XF5A048'")),"exactly one checkout followed by the chosen target reservation");
             check(api("/api/status",null).getBoolean("success"),"target booking succeeded");
-            result.putString("stream","PASS: Android WebView map tap selection, running and background booking notifications, grab, renewal, cancel, sign/leave/checkout, login/next-day refresh, exact-seat watch, foreground service, checked-in checkout then target booking.\n");
+            result.putString("stream","PASS: Android WebView official-only reservation import, locked/idle renewal alarm and AbortError recovery, map tap selection, running and background booking notifications, grab, cancel, sign/leave/checkout, login/next-day refresh, exact-seat watch, foreground service.\n");
             finish(Activity.RESULT_OK,result);
         } catch(Throwable e) { result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(e)); finish(Activity.RESULT_CANCELED,result); }
+    }
+    void statusForRetryCheck(JSONObject status) throws Exception {
+        JSONObject renewal=status.getJSONObject("renewal");
+        check(renewal.getBoolean("active") && renewal.getString("phase").equals("waiting") && renewal.getString("message").contains("自动重试"),"transient read abort must keep renewal waiting: "+renewal);
     }
 }

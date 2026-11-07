@@ -29,13 +29,25 @@ for($attempt=0;$attempt -lt 60;$attempt++) {
     Start-Sleep -Seconds 1
 }
 if(-not $booted) { throw 'Start the disposable emulator and wait for Android to finish booting.' }
-& $adb -s $Serial install -r output/seat-assistant-0.3.1.apk
+& $adb -s $Serial install -r output/seat-assistant-0.3.2.apk
 Check-Step
 & $adb -s $Serial install -r build/test.apk
 Check-Step
 & $adb -s $Serial shell pm grant cn.libseat.mobile android.permission.POST_NOTIFICATIONS
 Check-Step
-$result = & $adb -s $Serial shell am instrument -w cn.libseat.mobile.test/cn.libseat.mobile.FlowTest
+& $adb -s $Serial shell cmd alarm set-timezone Asia/Shanghai
 Check-Step
+& $adb -s $Serial shell dumpsys deviceidle whitelist +cn.libseat.mobile
+Check-Step
+& $adb -s $Serial shell appops set cn.libseat.mobile SCHEDULE_EXACT_ALARM allow
+Check-Step
+& $adb -s $Serial shell input keyevent 224
+& $adb -s $Serial shell wm dismiss-keyguard
+$result = & $adb -s $Serial shell am instrument -w cn.libseat.mobile.test/cn.libseat.mobile.FlowTest
+$instrumentExit=$LASTEXITCODE
+& $adb -s $Serial shell dumpsys deviceidle unforce
+& $adb -s $Serial shell input keyevent 224
+& $adb -s $Serial shell wm dismiss-keyguard
+if ($instrumentExit -ne 0) { throw "Instrumentation failed: $instrumentExit" }
 $result
 if (($result -join "`n") -notmatch 'PASS: Android WebView') { throw 'Android flow test failed' }

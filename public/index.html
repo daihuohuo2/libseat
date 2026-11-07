@@ -11,15 +11,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- Versioned URLs also bypass caches left by older running servers. Keep in sync with sw.js. -->
-<link rel="stylesheet" href="/study-font.css?v=v0.3.1">
-<link rel="stylesheet" href="/warm-study.css?v=v0.3.1">
-<link rel="stylesheet" href="/desktop-study.css?v=v0.3.1">
-<link rel="stylesheet" href="/booking-celebration.css?v=v0.3.1">
-<link rel="stylesheet" href="/renewal.css?v=v0.3.1">
-<link rel="stylesheet" href="/seat-map.css?v=v0.3.1">
-<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.3.1">
-<link rel="stylesheet" href="/compact-ui.css?v=v0.3.1">
-<link rel="stylesheet" href="/seat-watch.css?v=v0.3.1">
+<link rel="stylesheet" href="/study-font.css?v=v0.3.2">
+<link rel="stylesheet" href="/warm-study.css?v=v0.3.2">
+<link rel="stylesheet" href="/desktop-study.css?v=v0.3.2">
+<link rel="stylesheet" href="/booking-celebration.css?v=v0.3.2">
+<link rel="stylesheet" href="/renewal.css?v=v0.3.2">
+<link rel="stylesheet" href="/seat-map.css?v=v0.3.2">
+<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.3.2">
+<link rel="stylesheet" href="/compact-ui.css?v=v0.3.2">
+<link rel="stylesheet" href="/seat-watch.css?v=v0.3.2">
 </head>
 <body>
 <header class="topbar">
@@ -29,6 +29,7 @@
 <main class="app-shell">
   <nav class="tabs" role="tablist" aria-label="主要功能"><button id="tab-booking" role="tab" aria-selected="true" aria-controls="bookingPanel" data-panel="bookingPanel">预约座位</button><button id="tab-plans" role="tab" aria-selected="false" aria-controls="plansPanel" data-panel="plansPanel" tabindex="-1">我的方案</button><button id="tab-logs" role="tab" aria-selected="false" aria-controls="logsPanel" data-panel="logsPanel" tabindex="-1">运行记录</button><span id="previewBadge" hidden>设计预览 · 模拟数据</span></nav>
   <div id="bookingSummary" class="success-banner" hidden role="status"><strong id="bookingSummaryTitle">预约成功</strong><div id="bookingDetails" class="booking-details"></div><button id="btnBookingDetails" class="ghost">查看预约结果</button></div>
+  <p id="bookingSyncMessage" class="hint" role="status" hidden></p>
   <div id="pendingBooking" class="warnbox" hidden style="margin-bottom:16px">
     <strong>预约结果待确认 · 已暂停抢座</strong>
     <div id="pendingDetails" class="booking-details"></div><p id="bookingMessage" role="status"></p>
@@ -65,7 +66,7 @@
       <div id="mapWrap" class="mapwrap" tabindex="0" role="region" aria-label="座位地图，可滚动查看"><div id="mapSeats"></div><p id="mapEmpty" class="map-empty">正在获取座位地图…</p></div>
       <div class="map-footer"><div><span id="runState" class="pill">空闲</span><span id="mapSync" role="status">等待同步</span></div><button id="btnDetails" class="text-button" aria-expanded="false" aria-controls="detailsPanel">详细配置</button></div>
       <div id="detailsPanel" hidden>
-        <div class="row"><div><label class="label" for="dateMode">预约日期</label><select id="dateMode"><option value="today">当日</option><option value="tomorrow">次日</option></select></div><div><label class="label" for="interval">轮询间隔（秒）</label><input type="number" id="interval" min="3" max="120" value="6"></div><div><label class="label" for="timeMode">查询方式</label><select id="timeMode"><option value="now">实时同步</option><option value="custom">固定时段</option></select></div><div><label class="label" for="windowShow">同步时刻</label><input type="text" id="windowShow" readonly value="—"></div><div><label class="label" for="startTime">开始时间</label><input type="time" id="startTime" value="08:00"></div><div><label class="label" for="endTime">结束时间</label><input type="time" id="endTime" value="12:00"></div></div>
+        <div class="row"><div><label class="label" for="dateMode">预约日期</label><select id="dateMode"><option value="today">当日</option><option value="tomorrow">次日</option></select></div><div><label class="label" for="interval">轮询间隔（秒）</label><input type="number" id="interval" min="1" max="120" value="6"></div><div><label class="label" for="timeMode">查询方式</label><select id="timeMode"><option value="now">实时同步</option><option value="custom">固定时段</option></select></div><div><label class="label" for="windowShow">同步时刻</label><input type="text" id="windowShow" readonly value="—"></div><div><label class="label" for="startTime">开始时间</label><input type="time" id="startTime" value="08:00"></div><div><label class="label" for="endTime">结束时间</label><input type="time" id="endTime" value="12:00"></div></div>
         <p class="hint" id="timeHint"></p><p id="liveHint" class="hint"></p><span id="dateShow" class="hint"></span>
         <div class="section-heading area-heading"><h3>区域实时状态</h3><span id="areasHint" class="hint"></span></div><div id="areas"></div>
         <button id="btnNotifications" class="outline">开启桌面通知</button><p id="notificationHint" class="hint" role="status">抢座成功后会弹窗显示预约详情。</p>
@@ -99,10 +100,10 @@
   <h3>抢座</h3><p>先登录，选择区域并加入抢选名单，再点击“开始抢座”。名单内区域没有先后优先级，任一区域有空位即可尝试。勾选“仅观察空位”时不会提交预约。</p>
   <h3>座位偏好</h3><p>支持逐个点选、输入编号或范围（如 149, 160–170），也可选择不限座位。优先座位不可用时，会尝试同一区域的其他空位。常用配置可以保存为方案。</p>
   <h3>盯指定座位</h3><p>在地图点击座位，确认“设为盯座目标”，也可用“输入编号”。关闭仅观察后开启，会提醒正在运行；抢到后弹出详情和通知，请允许系统通知。仅盯今天的这个座位，不会选择其他空位。没有预约时直接抢；未签到时取消旧预约再换，已签到或临时签离时完全签离再换。目标尚不可约时保留原座位。换座存在失位风险，成功后仍需按官网要求签到。盯座与普通抢座、定时重约互斥，跨天或登录变化后会暂停，重启后需重新开启。</p>
-  <h3>定时重约</h3><p>选择当前预约或下次预约，填写今天的预计到馆时间，滑动选择 30～59 分钟的间隔后开启，默认 50 分钟。运行中先停止再修改。每次按实际预约时间重新计时，到馆时间到达或官网已签到时停止。</p><p>整段预约使用官网时段编号，结束时间仍以官网时段为准；自定义预约则按当前时间顺延。取消后座位可能被他人预约，签到期限以官网为准，接近 59 分钟时请留出网络处理时间。电脑需保持开机、联网且不休眠；手机版需允许后台运行。</p>
+  <h3>定时重约</h3><p>选择当前预约或下次预约，填写今天的预计到馆时间，滑动选择 30～59 分钟的间隔后开启，默认 50 分钟。运行中先停止再修改。每次按实际预约时间重新计时，到馆时间到达或官网已签到时停止。</p><p>整段预约使用官网时段编号，结束时间仍以官网时段为准；自定义预约则按当前时间顺延。取消后座位可能被他人预约，签到期限以官网为准，接近 59 分钟时请留出网络处理时间。电脑需保持开机、联网且不休眠；手机版请在“后台设置”允许后台运行和定时唤醒。</p>
   <h3>我的座位与签离</h3><p>红色表示你的有效预约。点击“我的座位”可定位；悬停座位可看完整编号，地图支持缩放和滚动。未签到时可取消预约，签到后可临时签离或完全签离；临时签离须按时返回签到。</p>
-  <h3>状态与刷新</h3><p>预约结束后首页自动清除标记，历史记录保留。重新登录或返回应用时会同步最新状态；“刷新座位”可同时更新预约、空位和地图。预约操作超时后请刷新核实，程序不会重复提交。</p>
-  <h3>后台运行</h3><p>桌面版关闭窗口后仍在托盘运行；需要退出时，右键托盘图标选择退出。详细配置和运行记录中保留查询设置及诊断信息。</p>
+  <h3>状态与刷新</h3><p>预约结束后首页自动清除标记，历史记录保留。学校入口建立的预约也会同步显示。重新登录或返回应用时会同步最新状态；“刷新座位”可同时更新预约、空位和地图。预约操作超时后请刷新核实，程序不会重复提交。</p>
+  <h3>后台运行</h3><p>桌面版关闭窗口后仍在托盘运行；需要退出时，右键托盘图标选择退出。查询间隔可设为 1～120 秒，越短越及时，但实际速度取决于学校接口和网络，无法保证毫秒抢到。查询超时会自动退避重试；提交操作结果不明时先核实。详细配置和运行记录中保留查询设置及诊断信息。</p>
 </dialog>
 <dialog id="accountDialog" aria-labelledby="accountTitle"><div class="section-heading"><h2 id="accountTitle">登录管理</h2><button class="text-button" id="btnCloseAccount">关闭</button></div><p class="section-caption">登录状态由程序自动维护；需要认证时请在学校窗口完成登录。</p><div class="btns"><button id="btnAuto">打开登录窗口</button><button id="btnVerify" class="outline">校验并刷新数据</button><button id="btnCancelLogin" class="ghost" hidden>停止等待</button></div><label class="chk"><input type="checkbox" id="autoRefresh" checked><span>登录过期时自动续期</span></label><p id="autoHint" class="hint" role="status" aria-live="polite"></p></dialog>
 
@@ -126,13 +127,13 @@
   <form method="dialog"><button autofocus>知道了</button></form>
   </div>
 </dialog>
-<script src="/booking-notifications.js?v=v0.3.1"></script>
-<script src="/booking-celebration.js?v=v0.3.1"></script>
-<link rel="stylesheet" href="/booking-management.css?v=v0.3.1">
-<script src="/booking-management-ui.js?v=v0.3.1"></script>
-<script src="/renewal-ui.js?v=v0.3.1"></script>
-<script src="/seat-map.js?v=v0.3.1"></script>
-<script src="/area-seat-prefs.js?v=v0.3.1"></script>
+<script src="/booking-notifications.js?v=v0.3.2"></script>
+<script src="/booking-celebration.js?v=v0.3.2"></script>
+<link rel="stylesheet" href="/booking-management.css?v=v0.3.2">
+<script src="/booking-management-ui.js?v=v0.3.2"></script>
+<script src="/renewal-ui.js?v=v0.3.2"></script>
+<script src="/seat-map.js?v=v0.3.2"></script>
+<script src="/area-seat-prefs.js?v=v0.3.2"></script>
 <script>
 const $ = id => document.getElementById(id);
 let polling = null;
@@ -906,6 +907,8 @@ async function tick(){
   tickPending = true;
   try{
     const s = await api('/api/status');
+    $('bookingSyncMessage').hidden = !s.syncMessage && !s.syncingBooking;
+    $('bookingSyncMessage').textContent = s.syncMessage || (s.syncingBooking ? '正在同步官网预约…' : '');
     updateMapBooking(s);
     RenewalUI.render(s);
     if(s.running && !startPending){
@@ -917,7 +920,7 @@ async function tick(){
     if(s.stopReason) $('taskFeedback').textContent = '任务已停止：' + s.stopReason;
     $('runState').textContent = s.pendingBooking ? (s.checkingBooking ? '正在核实' : '结果待确认') : (s.running ? '运行中' : (s.success ? '已完成' : (s.stopReason ? '已停止' : '空闲')));
     $('runState').className = 'pill ' + (s.running ? 'run' : (s.success ? 'on' : ''));
-    $('btnStart').disabled = s.running || startPending || !!s.pendingBooking || !!s.storageError
+    $('btnStart').disabled = s.running || startPending || s.syncingBooking || !!s.pendingBooking || !!s.storageError
       || !!s.renewal?.busy || !!s.renewal?.error || !!(s.renewal?.active && s.renewal.phase !== 'armed')
       || ['cancel-unknown','booking-unknown'].includes(s.renewal?.phase);
     $('btnStop').disabled = !s.running;
@@ -1086,6 +1089,7 @@ $('selStorey').onchange = async () => {
   await loadSeatMap(curArea);
 };
 $('selArea').onchange = async () => { mapBookingView = ''; curArea = $('selArea').value; await loadSeatMap(curArea); };
+$('interval').onchange = () => api('/api/config', { interval: Math.max(1, Math.min(120, Number($('interval').value) || 6)) });
 $('endTime').onchange = () => api('/api/config', { endTime: $('endTime').value });
 
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
@@ -1094,7 +1098,7 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
 
 if($('liveHint')) $('liveHint').textContent = '正在获取实时数据（首次可能要几秒）...';
 
-loadConfig().then(() => initMapBrowser(true)).catch(showMapError);
+loadConfig().then(() => refreshAllSeats()).catch(showMapError);
 setInterval(tick, 1000);
 setInterval(pollLogin, 1500);
 setInterval(refreshLive, 6000);
@@ -1129,7 +1133,7 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
   <p id="seatPrefMessage" class="hint" role="status" aria-live="polite"></p>
   <div class="btns"><button type="button" id="seatPrefSave">保存偏好</button></div>
 </dialog>
-<script src="/area-seat-prefs-ui.js?v=v0.3.1"></script>
+<script src="/area-seat-prefs-ui.js?v=v0.3.2"></script>
 <dialog id="watchDialog" aria-labelledby="watchTitle">
   <div class="section-heading"><h2 id="watchTitle">指定一个座位</h2><button id="watchClose" class="text-button">关闭</button></div>
   <p id="watchArea" class="hint"></p>
@@ -1138,8 +1142,8 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
   <p class="warnbox">目标可约后会取消未签到预约，或完全签离已签到座位，再预约目标。释放后仍可能被他人抢先预约，原座位无法保证保留。</p>
   <p id="watchInputError" class="hint" role="alert"></p><button id="watchSave" class="full-width">设为盯座目标</button>
 </dialog>
-<script src="/seat-watch-ui.js?v=v0.3.1"></script>
-<script src="/warm-study.js?v=v0.3.1"></script>
-<script src="/desktop-study.js?v=v0.3.1"></script>
+<script src="/seat-watch-ui.js?v=v0.3.2"></script>
+<script src="/warm-study.js?v=v0.3.2"></script>
+<script src="/desktop-study.js?v=v0.3.2"></script>
 </body>
 </html>

@@ -69,6 +69,13 @@ test('target changes during preflight; the current seat is kept',async t=>{
   const f=fixture(t);f.available=true;await f.start();let reads=0;
   f.control.inspect=()=>{if(++reads===2)f.available=false;};await f.tick();assert.deepEqual(f.calls,[]);assert.equal(f.manager.job.active,true);
 });
+test('release preflight service failure retries with backoff before any checkout is sent',async t=>{
+  const f=fixture(t);f.available=true;await f.start();const release=f.deps.release;
+  f.deps.release=async()=>{throw Object.assign(Error('busy'),{code:503});};
+  await f.tick();assert.equal(f.manager.job.active,true);assert.deepEqual(f.calls,[]);
+  await f.tick();assert.match(f.manager.job.message,/4 秒后/);assert.deepEqual(f.calls,[]);
+  f.deps.release=release;f.advance(5000);await f.manager.tick();assert.deepEqual(f.calls,['checkout','reserve:new']);
+});
 test('target lost after release keeps watching only the target, without fallback or repeated checkout',async t=>{
   const f=fixture(t);f.available=true;await f.start();f.control.afterRelease=()=>f.available=false;
   await f.tick();assert.deepEqual(f.calls,['checkout']);assert.equal(f.manager.job.active,true);
@@ -109,4 +116,18 @@ test('restart of a monitoring job is paused; authentication, date and settings c
 test('no mutation without an atomic journal; corrupt records block start',async t=>{
   const f=fixture(t);f.available=true;await f.start();f.manager.save=()=>{throw Error('disk full');};await assert.rejects(f.tick(),/disk full/);assert.deepEqual(f.calls,[]);
   fs.writeFileSync(f.file,'broken');assert.equal(f.reload().blocks(),true);
+});
+test('aborted availability reads retry with backoff, keep current seat and stop immediately on request',async t=>{
+  const f=fixture(t);await f.start();f.control.inspect=()=>{throw Error('aborted');};
+  await f.tick();assert.equal(f.manager.job.active,true);assert.deepEqual(f.calls,[]);assert.match(f.manager.job.message,/自动重试/);
+  await f.tick();assert.equal(f.manager.readFailures,2);
+  delete f.control.inspect;f.available=true;f.advance(5000);await f.tick();
+  assert.deepEqual(f.calls,['checkout','reserve:new']);
+  const stopped=fixture(t);await stopped.start();stopped.control.inspect=()=>{throw Error('AbortError');};await stopped.tick();stopped.manager.stop();
+  delete stopped.control.inspect;stopped.available=true;await stopped.tick();assert.deepEqual(stopped.calls,[]);
+});
+test('occupied target polling does not reread reservation history on every pass',async t=>{
+  const f=fixture(t);let reads=0;const current=f.deps.current;f.deps.current=async()=>{reads++;return current();};
+  await f.start();await f.tick();await f.tick();await f.tick();assert.equal(reads,1);
+  f.available=true;await f.tick();assert.equal(reads,2);assert.deepEqual(f.calls,['checkout','reserve:new']);
 });

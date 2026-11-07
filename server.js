@@ -24,6 +24,7 @@ const { currentRecordsSource, recordsEndpoint, matchesRecord } = require('./rese
 const { Renewal } = require('./renewal.js');
 const { BookingManagement, describe, findBooking } = require('./booking-management.js');
 const { SeatWatch } = require('./seat-watch.js');
+const { queryError } = require('./request-errors.js');
 
 const BASE = 'https://libzw.csu.edu.cn';
 const AES_IV = 'ZZWBKJ_ZHIHUAWEI';
@@ -168,7 +169,7 @@ function publicConfig(cfg) {
  *   - 网络类瞬时故障自动重试 2 次
  * ============================================================ */
 const REQ_TIMEOUT_MS = 10000;
-const lanes = { high: [], low: [] };
+const lanes = { critical: [], high: [], low: [] };
 let pumping = false;
 
 function pump() {
@@ -176,11 +177,11 @@ function pump() {
   pumping = true;
   (async () => {
     while (true) {
-      const task = lanes.high.shift() || lanes.low.shift();
+      const task = lanes.critical.shift() || lanes.high.shift() || lanes.low.shift();
       if (!task) {
         pumping = false;
         // 收尾时二次检查，避免"退出瞬间新任务入队却没人调度"
-        if (lanes.high.length || lanes.low.length) pump();
+        if (lanes.critical.length || lanes.high.length || lanes.low.length) pump();
         return;
       }
       try { task.resolve(await task.fn()); } catch (e) { task.reject(e); }
@@ -195,7 +196,7 @@ function schedule(fn, priority) {
       if (priority === 'high' && Date.now() - queuedAt > 15000) throw Error('请求排队超时，请稍后重试');
       return fn();
     };
-    lanes[priority === 'high' ? 'high' : 'low'].push({ fn: task, resolve: resolve, reject: reject });
+    lanes[priority === 'critical' ? 'critical' : priority === 'high' ? 'high' : 'low'].push({ fn: task, resolve: resolve, reject: reject });
     pump();
   });
 }
@@ -209,8 +210,8 @@ const isTransient = e => {
  * @param {object} opts { priority: 'high' | 'low' } 界面请求用 high
  */
 async function api(pathname, body, token, useCrypto, opts) {
-  const priority = (opts && opts.priority) || 'low';
   const submitting = ['/v4/space/confirm', '/v4/space/cancel', '/v4/space/leave', '/v4/space/checkout'].includes(pathname);
+  const priority = submitting ? 'critical' : (opts && opts.priority) || 'low';
   return schedule(async () => {
     let lastErr = null;
     const attempts = submitting || priority === 'high' ? 1 : 3;
@@ -266,7 +267,7 @@ async function apiOnce(pathname, body, token, useCrypto) {
     signal: AbortSignal.timeout(REQ_TIMEOUT_MS)
   });
   const text = await res.text();
-  if (!res.ok) throw Error('接口 HTTP ' + res.status);
+  if (!res.ok) throw queryError({ code:res.status }, '接口 HTTP ' + res.status);
   let json;
   try { json = JSON.parse(text); } catch (e) { throw Error('接口响应无法解析'); }
   return json;
@@ -310,6 +311,20 @@ function fetchSpaceMap(cfg, areaId, date, priority) {
   return api('/v4/Space/map', {
     id: areaId, day: date, start_time: w.start, end_time: w.end
   }, cfg.token, false, { priority: priority });
+}
+// Rules change much less often than occupancy. Re-resolve the current time window
+// on each use; never cache seat availability or credentials to disk.
+const bookingMaps = new Map();
+async function fetchBookingMap(cfg, areaId, date, fresh = false) {
+  const key = JSON.stringify([cfg.token, String(areaId), date, cfg.timeMode, cfg.startTime, cfg.endTime]);
+  const cached = bookingMaps.get(key);
+  if (!fresh && cached && Date.now() - cached.at < 30000) return cached.value;
+  const value = await fetchSpaceMap(cfg, areaId, date, 'high');
+  if (value?.code === 0) {
+    if (bookingMaps.size >= 20) bookingMaps.delete(bookingMaps.keys().next().value);
+    bookingMaps.set(key, {at:Date.now(), value});
+  }
+  return value;
 }
 
 /** 当前启用方案的名称（没有方案则返回空串） */
@@ -513,6 +528,8 @@ const state = {
   booking: null,
   pendingBooking: bookingStore.data.pending,
   checkingBooking: false,
+  syncingBooking: false,
+  syncMessage: '',
   bookingMessage: bookingStore.data.pending ? '有一笔预约结果待确认，请先核实。' : '',
   storageError: bookingStore.error,
   success: false
@@ -557,7 +574,7 @@ async function fetchOwnReservations(cfg) {
   const records = [];
   for (let page = 1; page <= 3; page++) {
     const r = await api(cachedRecordsEndpoint, { type: '1', page, limit: 20 }, cfg.token, false, { priority: 'high' });
-    if (!r || r.code !== 0 || !r.data || !Array.isArray(r.data.data)) throw Error('无法读取预约记录，请检查登录状态或在官网核实');
+    if (!r || r.code !== 0 || !r.data || !Array.isArray(r.data.data)) throw queryError(r, '无法读取预约记录，请检查登录状态或在官网核实');
     records.push(...r.data.data);
     if (r.data.data.length < 20) break;
   }
@@ -583,20 +600,21 @@ const renewal = new Renewal(process.env.LIBSEAT_RENEWAL_FILE || path.join(path.d
   stopSearch: () => { state.stopFlag = true; },
   booking: () => state.success ? state.booking : null,
   resolvedBooking: id => bookingStore.data.history.find(b => b.id === id),
-  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError || management.blocked() || !!seatWatch?.blocks(),
+  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || state.syncingBooking || !!state.storageError || management.blocked() || !!seatWatch?.blocks(),
   records: () => fetchOwnReservations(loadConfig()),
   prepare: async (booking, window) => {
     const cfg = loadConfig();
     let areaId = booking.areaId;
     if (!areaId) {
       const own = await api('/v4/index/subscribe', {}, cfg.token, false, { priority: 'high' });
+      if (own?.code !== 0) throw queryError(own, '无法读取官网当前座位信息');
       const row = own?.code === 0 && own.data?.find(r => String(r.type) === '1'
         && String(r.space_id || r.space) === String(booking.seatId));
       areaId = row?.area_id;
     }
     if (!areaId) throw Error('无法确认原座位所在区域');
     const map = await fetchSpaceMap({ ...cfg, dateMode: 'today', timeMode: 'now' }, String(areaId), booking.date, 'high');
-    if (map?.code !== 0) throw Error(map?.message || '无法读取官网预约时段');
+    if (map?.code !== 0) throw queryError(map, '无法读取官网预约时段');
     const rule = resolveRenewalRule(map.data, booking, cfg, { start: window.startTime, end: window.endTime });
     return { areaId: String(areaId), startTime: rule.start, endTime: rule.end,
       reserveType: rule.reserveType, segment: rule.segment, axis: rule.axis };
@@ -647,14 +665,14 @@ const management = new BookingManagement(bookingStore, {
   booking: () => state.booking,
   token: () => loadConfig().token,
   update: booking => { state.booking = booking; state.success = booking.outcome === 'success'; },
-  unavailable: owner => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError
+  unavailable: owner => state.running || !!state.pendingBooking || state.checkingBooking || state.syncingBooking || !!state.storageError
     || !!(seatWatch?.busy && owner !== seatWatch)
     || renewal.busy || !!renewal.error || ['cancel-unknown', 'booking-unknown'].includes(renewal.job?.phase),
   stopRenewal: () => { if (renewal.job?.active) renewal.stop(); },
   records: () => fetchOwnReservations(loadConfig()),
   current: async () => {
     const r = await api('/v4/index/subscribe', {}, loadConfig().token, false, { priority: 'high' });
-    if (r?.code !== 0 || !Array.isArray(r.data)) throw Error('无法读取官网当前座位信息');
+    if (r?.code !== 0 || !Array.isArray(r.data)) throw queryError(r, '无法读取官网当前座位信息');
     return r.data;
   },
   // Official AppointmentItem: cancel({id}); leave/checkout({id, points}) with AES.
@@ -665,14 +683,14 @@ function saveWatchLocation(points) {
   if (Number.isFinite(points?.lat) && Number.isFinite(points?.lng) && Math.abs(points.lat) <= 90 && Math.abs(points.lng) <= 180)
     watchLocation = { lat: points.lat, lng: points.lng, at: Date.now() };
 }
-async function inspectWatchTarget(input, cfg, date) {
+async function inspectWatchTarget(input, cfg, date, options = {}) {
   const areaId = String(input?.areaId || '');
   if (!areaId || areaId.length > 100 || !(input.seatId || input.seat)) throw Error('请先选择地图区域并指定一个座位');
-  const map = await fetchSpaceMap(cfg, areaId, date, 'high');
-  if (map?.code !== 0) throw Error(map?.message || '无法读取目标区域的预约规则');
+  const map = await fetchBookingMap(cfg, areaId, date, options.fresh);
+  if (map?.code !== 0) throw queryError(map, '无法读取目标区域的预约规则');
   const rule = resolveBookingRule(map.data, cfg, date, effectiveWindow(cfg, 'book'));
   const seats = await fetchSeats(cfg, areaId, date, 'high', rule);
-  if (seats?.code !== 0 || !Array.isArray(seats.data?.list)) throw Error(seats?.message || '无法读取目标座位');
+  if (seats?.code !== 0 || !Array.isArray(seats.data?.list)) throw queryError(seats, '无法读取目标座位');
   const wanted = String(input.seat || '').trim().toUpperCase();
   const found = seats.data.list.filter(s => input.seatId ? String(s.id) === String(input.seatId)
     : String(s.no).toUpperCase() === wanted || /^\d+$/.test(wanted) && Number(String(s.no).match(/\d+$/)?.[0]) === Number(wanted));
@@ -692,10 +710,10 @@ function adoptWatchBooking(booking) {
   }
   state.booking = booking; state.success = booking.outcome === 'success';
 }
-async function currentWatchBooking(cfg, date) {
+async function currentWatchBooking(cfg, date, displayOnly = false) {
   const records = await fetchOwnReservations(cfg);
   const response = await api('/v4/index/subscribe', {}, cfg.token, false, { priority: 'high' });
-  if (response?.code !== 0 || !Array.isArray(response.data)) throw Error('无法核实官网当前座位，未释放原座位');
+  if (response?.code !== 0 || !Array.isArray(response.data)) throw queryError(response, '无法核实官网当前座位，未释放原座位');
   if (loadConfig().token !== cfg.token) throw Error('登录状态已变化');
   const current = response.data.filter(r => String(r.type) === '1');
   const terminal = r => ['6', '4', '8', '12', '34', '35'].includes(String(r.status));
@@ -705,8 +723,9 @@ async function currentWatchBooking(cfg, date) {
     if (current.length) throw Error('官网当前座位与预约记录不一致，请稍后核实');
     if (state.success && state.booking) {
       const old = findBooking(records, state.booking);
-      if (!old || !terminal(old)) throw Error('原预约尚未确认结束，未预约其他座位');
-      management.apply(state.booking, { record: old, ...describe(old) });
+      if (!old || !terminal(old)) {
+        if (!displayOnly) throw Error('原预约尚未确认结束，未预约其他座位');
+      } else management.apply(state.booking, { record: old, ...describe(old) });
     }
     return null;
   }
@@ -717,19 +736,64 @@ async function currentWatchBooking(cfg, date) {
   const known = bookingStore.data.history.find(b => findBooking([row], b));
   const begin = String(row.beginTime || '').replace('T', ' ');
   const end = String(row.endTime || '').replace('T', ' ');
-  if (begin.slice(0, 10) !== date || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(end)) throw Error('已有其他日期或时间不明的预约，未自动释放');
+  if (date && begin.slice(0, 10) !== date || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(begin) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(end)) throw Error('已有其他日期或时间不明的预约，未自动释放');
   const seatId = String(row.seat_id || row.space || row.space_id || subscription?.space_id || known?.seatId || '');
   const areaId = String(row.area_id || subscription?.area_id || known?.areaId
     || (seatId === seatWatch?.job?.target.seatId ? seatWatch.job.target.areaId : ''));
   if (!row.id || !seatId) throw Error('官网未提供完整的预约编号和座位信息');
-  return { ...detail, booking: { ...known, id: known?.id || 'official-' + String(row.id), officialId: String(row.id),
+  const booking = { ...known, id: known?.id || 'official-' + String(row.id), officialId: String(row.id),
     seatId, areaId, seat: String(row.name || row.no || row.spaceName || known?.seat || seatId),
-    area: String(row.nameMerge || row.areaName || known?.area || areaId), date,
-    startTime: begin.slice(11, 16), endTime: end.slice(11, 16), outcome: 'success', remoteState: detail.state } };
+    area: String(row.nameMerge || row.areaName || known?.area || areaId), date:begin.slice(0, 10),
+    startTime: begin.slice(11, 16), endTime: end.slice(11, 16), outcome: 'success', remoteState: detail.state };
+  delete booking.endedBy;
+  // Never reset the sign-in deadline to the import time. Conservatively use the
+  // original start if the official creation time is unavailable.
+  if (!booking.bookedAt) booking.bookedAt = new Date(begin.slice(0, 16).replace(' ', 'T') + ':00+08:00').toISOString();
+  if (!booking.reserveType && areaId) {
+    let map;
+    try { map = await fetchBookingMap(cfg, areaId, booking.date); }
+    catch (e) {
+      // The verified reservation should remain visible even if optional map
+      // metadata is temporarily unavailable. Renewal validates rules separately.
+      if (!displayOnly) throw e;
+    }
+    if (map?.code === 0) {
+      const type = String(map.data?.date?.reserveType || '');
+      if (['1','3'].includes(type)) booking.reserveType = type;
+      if (type === '1') {
+        const slots = map.data.date.list?.find(r => r.day === booking.date)?.times || [];
+        const slot = slots.find(s => s.start <= booking.startTime && s.end === booking.endTime);
+        if (slot) booking.segment = String(slot.id);
+      }
+    }
+  }
+  if (loadConfig().token !== cfg.token) throw Error('登录状态已变化');
+  return { ...detail, record:row, booking };
+}
+let bookingSyncPromise = null;
+async function syncOfficialBooking() {
+  if (bookingSyncPromise) return bookingSyncPromise;
+  if (management.refreshPromise) await management.refreshPromise;
+  if (bookingSyncPromise) return bookingSyncPromise;
+  if (state.running || state.pendingBooking || state.checkingBooking || state.storageError || management.blocked()
+    || renewal.busy || seatWatch?.busy || ['cancel-unknown','booking-unknown'].includes(renewal.job?.phase)) return;
+  const cfg = loadConfig(); if (!cfg.token) return;
+  state.syncingBooking = true;
+  bookingSyncPromise = (async () => {
+    try {
+      const current = await currentWatchBooking(cfg, null, true);
+      if (loadConfig().token !== cfg.token) return;
+      if (current) { adoptWatchBooking(current.booking); management.apply(current.booking, current); }
+      else { state.success = false; state.booking = null; management.view = null; }
+      state.syncMessage = '';
+    } catch (e) { state.syncMessage = '官网预约同步失败：' + e.message; throw e; }
+    finally { state.syncingBooking = false; bookingSyncPromise = null; }
+  })();
+  return bookingSyncPromise;
 }
 seatWatch = new SeatWatch(process.env.LIBSEAT_WATCH_FILE || path.join(path.dirname(CONFIG_FILE), 'seat-watch.json'), {
   config: loadConfig,
-  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || !!state.storageError
+  unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || state.syncingBooking || !!state.storageError
     || renewal.blocksBooking() || management.blocked(),
   inspect: inspectWatchTarget, current: currentWatchBooking, adopt: adoptWatchBooking,
   pending: () => ({ booking: state.pendingBooking, action: bookingStore.data.pendingAction }),
@@ -766,7 +830,7 @@ function expireBooking() {
   const booking = state.booking;
   // An uncertain submission/action must still be reconciled, never silently discarded.
   if (!state.success || !bookingEnded(booking) || state.pendingBooking || state.checkingBooking
-      || state.running || management.blocked() || renewal.busy || seatWatch?.busy) return;
+      || state.running || management.blocked() || renewal.busy || seatWatch?.busy || state.syncingBooking) return;
   const ended = { ...booking, outcome: 'completed', remoteState: 'completed', endedBy: 'time' };
   state.booking = ended; state.success = false;
   management.view = null;
@@ -780,6 +844,9 @@ setInterval(() => {
   expireBooking();
   renewal.tick().catch(e => log('定时重约停止：' + e.message, 'error'));
 }, 5000);
+// Native Android alarms must check wall-clock deadlines immediately: Handler
+// delays use uptime and can still be pending after a long device sleep.
+module.exports.wakeRenewal = async () => { expireBooking(); await renewal.tick(); };
 
 function log(msg, level) {
   const line = '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] ' + msg;
@@ -1043,7 +1110,7 @@ async function runOnce(cfg, date) {
     let bookedWindow, seatRes;
     try {
       if (!cfg.verifyOnly) {
-        const map = await fetchSpaceMap(cfg, area.id, date);
+        const map = await fetchBookingMap(cfg, area.id, date);
         if (map.code === 10001) return { fatal: true };
         if (map.code !== 0) throw Error(map.message || '无法读取官网预约规则');
         bookedWindow = resolveBookingRule(map.data, cfg, date, effectiveWindow(cfg, 'book'));
@@ -1769,7 +1836,10 @@ const server = http.createServer(async (req, res) => {
     if (req.headers?.origin && req.headers.origin !== 'http://' + req.headers.host) return sendJson(res, { ok: false, message: '请求来源不匹配' });
     try {
       const body = await readBody(req);
-      if (p === '/api/booking-state') await management.refresh(true);
+      if (p === '/api/booking-state') {
+        if (bookingStore.data.pendingAction) await management.refresh(true);
+        else await syncOfficialBooking();
+      }
       else {
         if (seatWatch.blocks()) throw Error('请先停止盯座并核实待处理结果，再操作当前预约');
         await management.act(body);
@@ -1811,6 +1881,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/start' && req.method === 'POST') {
     const body = await readBody(req);
+    if (state.syncingBooking) return sendJson(res, { ok:false, message:'正在同步官网预约，请稍后再开始' });
     if (seatWatch.blocks()) return sendJson(res, { ok: false, message: '请先停止盯座并处理待核实结果' });
     if (management.blocked()) return sendJson(res, { ok: false, message: '预约操作进行中或结果待核实，请先刷新预约状态' });
     if (state.running) return sendJson(res, { ok: false, message: '已在运行中' });
@@ -1857,6 +1928,7 @@ const server = http.createServer(async (req, res) => {
     if (state.success || bookingStore.data.pendingAction) management.refresh().catch(() => {});
     return sendJson(res, {
       running: state.running,
+      serverNow: Date.now(),
       success: state.success,
       lastCheck: state.lastCheck,
       areas: state.lastAreas,
@@ -1866,6 +1938,8 @@ const server = http.createServer(async (req, res) => {
       bookingManagement: management.status(),
       pendingBooking: state.pendingBooking,
       checkingBooking: state.checkingBooking,
+      syncingBooking: state.syncingBooking,
+      syncMessage: state.syncMessage,
       bookingMessage: state.bookingMessage,
       storageError: state.storageError,
       stopReason: state.stopReason || '',

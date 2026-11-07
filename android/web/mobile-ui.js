@@ -26,10 +26,16 @@
     Mobile.switchMode(!demo);
   };
   bar.append(label, toggle); document.querySelector('.app-shell').prepend(bar);
+  const background = document.createElement('button'); background.id='btnBackgroundSettings'; background.className='text-button'; background.textContent='后台运行设置';
+  background.onclick=()=>Mobile.backgroundSettings(); bar.append(background);
+  const backgroundHint=document.createElement('p');backgroundHint.className='hint';backgroundHint.id='backgroundHint';bar.after(backgroundHint);
   const helpText = document.createElement('p');
   helpText.textContent = '手机独立运行。请允许通知和后台运行；锁屏省电、断网或强制停止可能中断任务。通知栏可停止抢座、重约与盯座，重新打开后请核实状态。';
   document.getElementById('helpDialog').append(helpText);
   const notice = () => {
+    const permissions=JSON.parse(Mobile.backgroundState());
+    backgroundHint.textContent = permissions.battery && permissions.alarm ? '' : '锁屏重约：'+(!permissions.battery?'请允许后台运行；':'')+(!permissions.alarm?'请开启定时唤醒权限。':'');
+    backgroundHint.hidden=!backgroundHint.textContent;
     $('btnNotifications').hidden = false; $('btnNotifications').textContent = Mobile.notificationsAllowed() ? '通知设置' : '允许手机通知';
     $('notificationHint').textContent = Mobile.notificationsAllowed() ? '盯座开始和预约成功会发送通知，运行中可在通知栏停止。' : '请在通知设置中允许通知，并开启“预约结果”类别；成功结果仍会在应用内显示。';
   };

@@ -50,6 +50,12 @@ test('official availability flags gate temporary and full checkout', () => {
   assert.deepEqual(describe({ ...record, status: '3' }, null).actions, []);
   assert.deepEqual(describe({ ...record, status: '3' }, { flag_leave: 1, SYS_WEB_MYYUYUE_RIGHTBACK: 1, SYS_WEB_MYYUYUE_LEAVE: 1 }).actions, ['checkout']);
 });
+test('transient preflight failures preserve their type for task retry without journaling a release', async t => {
+  const f=fixture(t); f.sign();
+  f.deps.current=async()=>{throw Object.assign(Error('busy'),{code:503});};
+  await assert.rejects(f.manager.act({id:booking.id,action:'checkout'}),e=>e.code===503);
+  assert.deepEqual(f.calls,[]);assert.equal(f.booking.outcome,'success');assert.equal(f.store.data.pendingAction,null);
+});
 
 test('same-minute rebooking ignores cancelled history and acts only on the unique live record', async t => {
   const f=fixture(t), replacement={...record,id:'official-replacement'};

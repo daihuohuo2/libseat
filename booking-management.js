@@ -132,7 +132,9 @@ class BookingManagement {
       return this.status();
     } catch (e) {
       this.view = { ...this.status(), bookingId: id, message: sent ? ACTIONS[action] + '结果待确认，请刷新核实，未重复发送。' : e.message };
-      throw Error(this.view.message);
+      const failure = Error(this.view.message);
+      if (!sent) { failure.code = e.code; failure.name = e.name; }
+      throw failure;
     } finally { this.busy = false; }
   }
 }

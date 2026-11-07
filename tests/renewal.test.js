@@ -76,6 +76,18 @@ test('8:00 through 14:00: seven single cancellations/rebookings, same seat, pres
   assert.equal(m.job.phase, 'finished'); assert.ok(f.booking); assert.equal(f.calls.length, 14);
   assert.equal(fs.readFileSync(f.file, 'utf8').includes('secret'), false);
 });
+test('background abort before cancellation retains the reservation and retries at the next backoff',async t=>{
+  const f=fixture(t);await f.manager.start({arrivalAt,mode:'current'});f.advance(50);
+  const records=f.deps.records;f.deps.records=async()=>{throw Error('aborted');};await f.manager.tick();
+  assert.equal(f.manager.job.active,true);assert.deepEqual(f.calls,[]);assert.match(f.manager.job.message,/自动重试/);
+  f.deps.records=records;await f.manager.tick();assert.deepEqual(f.calls,[]);
+  f.advance(0.1);await f.manager.tick();assert.equal(f.manager.job.cycles,1);assert.equal(f.calls.length,2);
+});
+test('a login change during renewal preflight prevents cancelling a previous account booking',async t=>{
+  const f=fixture(t);await f.manager.start({arrivalAt,mode:'current'});f.advance(50);
+  const config=f.deps.config;f.control.beforeCancel=()=>{f.deps.config=()=>({...config(),token:'another-account'});};
+  await f.manager.tick();assert.deepEqual(f.calls,[]);assert.equal(f.manager.job.active,false);
+});
 test('arming ignores a previous success, then adopts a new successful booking', async t => {
   const f = fixture(t), m = f.manager;
   await m.start({ arrivalAt, mode: 'next' });

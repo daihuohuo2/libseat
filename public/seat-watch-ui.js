@@ -29,7 +29,7 @@
     el('watchInput').disabled = locked;
     for (const seat of el('mapSeats').querySelectorAll('.seat')) seat.disabled = !canSelect();
     el('watchStart').hidden = !!w.active || !!w.busy;
-    el('watchStart').disabled = locked || !draft?.seatId || s.running || s.pendingBooking || s.storageError
+    el('watchStart').disabled = locked || !draft?.seatId || s.running || s.pendingBooking || s.storageError || s.syncingBooking
       || s.renewal?.active || s.renewal?.busy || s.renewal?.error || s.renewal?.phase?.endsWith('unknown')
       || s.bookingManagement?.busy || s.bookingManagement?.checking || s.bookingManagement?.pendingAction;
     el('watchStop').hidden = !w.active && !w.busy;

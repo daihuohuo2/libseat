@@ -31,6 +31,8 @@ public class EngineService extends Service {
     int sequence;
     volatile int generation;
     long foregroundSince;
+    String renewalAlarmKey = "";
+    long lastEngineStatusAt, lastRenewalWakeAt;
     volatile String loginToken = "", loginError = "";
     boolean loginSilent;
     int loginGeneration;
@@ -51,7 +53,40 @@ public class EngineService extends Service {
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && "STOP".equals(intent.getAction())) dispatch("/api/stop", "POST", "{}", (c,b) -> {});
-        return START_NOT_STICKY; // Never resume booking after a system/process restart.
+        if (intent != null && "RENEWAL_WAKE".equals(intent.getAction())) {
+            lastRenewalWakeAt=SystemClock.elapsedRealtime();
+            try {
+                enterForeground();
+                // Wait for engine initialization, then check the wall-clock due
+                // time through the same guarded state machine as ordinary ticks.
+                dispatch("/api/status","GET","{}",(c,b)->eval("androidWakeRenewal()"));
+            } catch(Exception e) {
+                dispatch("/api/stop","POST","{}",(c,b)->{});
+                notifyText("后台任务未启动","请返回应用检查后台运行权限与任务状态。",3);
+                leaveForeground(); stopSelf();
+            }
+        }
+        return START_NOT_STICKY; // Only a pending renewal alarm may wake a stopped service.
+    }
+    PendingIntent renewalAlarmIntent() {
+        Intent intent=new Intent(this,EngineService.class).setAction("RENEWAL_WAKE");
+        return PendingIntent.getForegroundService(this,8,intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    }
+    void scheduleRenewalAlarm(JSONObject s, JSONObject renewal) {
+        AlarmManager alarms=getSystemService(AlarmManager.class);
+        if(renewal==null || !renewal.optBoolean("active") || !"waiting".equals(renewal.optString("phase"))) {
+            if(!renewalAlarmKey.isEmpty()) alarms.cancel(renewalAlarmIntent());
+            renewalAlarmKey="";return;
+        }
+        long due=Math.min(renewal.optLong("nextAt"),renewal.optLong("arrivalAt"));
+        String key=renewal.optString("id")+":"+due;
+        if(key.equals(renewalAlarmKey) || due<=0) return;
+        long at=System.currentTimeMillis()+Math.max(1000,due-s.optLong("serverNow",System.currentTimeMillis()));
+        try {
+            if(Build.VERSION.SDK_INT<31 || alarms.canScheduleExactAlarms()) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,renewalAlarmIntent());
+            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,renewalAlarmIntent());
+            renewalAlarmKey=key;
+        } catch(SecurityException e) { Log.w("LibseatEngine","Alarm permission changed"); }
     }
     void createEngine() {
         ready = false; generation++;
@@ -107,7 +142,7 @@ public class EngineService extends Service {
             .setContentText(text).setContentIntent(openIntent()).setOngoing(true).addAction(new Notification.Action.Builder(null,"停止任务",stop).build()).build();
     }
     void enterForeground() {
-        if (foreground) return;
+        if (foreground) { if(!wake.isHeld()) wake.acquire(6*60*60*1000L); return; }
         if (Build.VERSION.SDK_INT >= 29) startForeground(1,taskNotice("正在检查座位，可点击返回应用"),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         else startForeground(1,taskNotice("正在检查座位，可点击返回应用"));
         foreground = true; foregroundSince = System.currentTimeMillis(); wake.acquire(6*60*60*1000L);
@@ -117,6 +152,7 @@ public class EngineService extends Service {
         if (wake.isHeld()) wake.release();
     }
     @Override public void onTimeout(int startId, int fgsType) {
+        getSystemService(AlarmManager.class).cancel(renewalAlarmIntent()); renewalAlarmKey="";
         dispatch("/api/stop","POST","{}",(c,b)->{});
         leaveForeground();
         notifyText("后台任务已停止", "已达到系统后台运行时限，请打开应用检查任务状态。", 3);
@@ -257,11 +293,14 @@ public class EngineService extends Service {
         @JavascriptInterface public void status(String body) { post(()->{
             try {
                 JSONObject s=new JSONObject(body); boolean wasRunning=running, wasWatching=watching;
+                lastEngineStatusAt=SystemClock.elapsedRealtime();
                 running=s.optBoolean("running"); pendingBooking=!s.isNull("pendingBooking"); checkingBooking=s.optBoolean("checkingBooking");
                 JSONObject renewal=s.optJSONObject("renewal"), management=s.optJSONObject("bookingManagement"), watch=s.optJSONObject("seatWatch");
                 renewing=renewal!=null && (renewal.optBoolean("active") || renewal.optBoolean("busy"));
                 watching=watch!=null && (watch.optBoolean("active") || watch.optBoolean("busy"));
                 boolean working=running || checkingBooking || renewing || watching || (management!=null && management.optBoolean("busy"));
+                scheduleRenewalAlarm(s,renewal);
+                if(working && foreground && !wake.isHeld()) wake.acquire(6*60*60*1000L);
                 if(working && !foreground) {
                     try { enterForeground(); }
                     catch(Exception e) { dispatch("/api/stop","POST","{}",(c,b)->{}); notifyText("后台任务未启动","请回到应用，允许后台运行后重试。",3); }

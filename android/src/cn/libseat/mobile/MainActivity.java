@@ -123,6 +123,23 @@ public class MainActivity extends Activity {
         final WebView page; MobileBridge(WebView page) { this.page=page; }
         @JavascriptInterface public boolean isDemo() { return service!=null && service.demo; }
         @JavascriptInterface public boolean notificationsAllowed() { return service!=null && service.notificationsAllowed(); }
+        @JavascriptInterface public String backgroundState() {
+            try {
+                boolean battery=getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(getPackageName());
+                boolean alarm=Build.VERSION.SDK_INT<31 || getSystemService(AlarmManager.class).canScheduleExactAlarms();
+                return new JSONObject().put("battery",battery).put("alarm",alarm).toString();
+            } catch(JSONException e) { return "{}"; }
+        }
+        @JavascriptInterface public void backgroundSettings() { runOnUiThread(()->{
+            new AlertDialog.Builder(MainActivity.this).setTitle("后台运行设置")
+                .setMessage("允许后台运行可减少锁屏断网；允许定时唤醒可提高定时重约的准时性。部分手机还需在应用电池设置中选择不限制。")
+                .setPositiveButton("允许后台运行",(d,w)->{
+                    Intent intent=new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(Uri.parse("package:"+getPackageName()));
+                    try { startActivity(intent); } catch(ActivityNotFoundException e) { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:"+getPackageName()))); }
+                }).setNeutralButton("定时唤醒权限",(d,w)->{
+                    if(Build.VERSION.SDK_INT>=31) try { startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(Uri.parse("package:"+getPackageName()))); } catch(ActivityNotFoundException e) { Toast.makeText(MainActivity.this,"请在应用权限设置中允许闹钟和提醒",Toast.LENGTH_LONG).show(); }
+                }).setNegativeButton("关闭",null).show();
+        }); }
         @JavascriptInterface public void api(int id,String path,String method,String body) { runOnUiThread(()->{
             if(service==null || page!=ui) return;
             if(!path.matches("/api/(?:[a-z-]+|renewal/(?:start|stop|check))") || (!method.equals("GET") && !method.equals("POST")) || body.length()>2000000) {

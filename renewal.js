@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { matchesRecord } = require('./reservation-records');
+const { retryableRead } = require('./request-errors');
 
 const MINUTE = 60000;
 function validateInterval(value = 50) {
@@ -45,7 +46,7 @@ function nextWindow(job, now) {
 // Every destructive request is preceded by an atomic journal write. In-flight
 // operations recovered after a crash are checked, never blindly repeated.
 class Renewal {
-  constructor(file, deps, now = Date.now) {
+  constructor(file, deps, now = () => Date.now()) {
     this.file = file;
     this.deps = deps;
     this.now = now;
@@ -53,6 +54,7 @@ class Renewal {
     this.generation = 0;
     this.error = '';
     this.job = null;
+    this.readFailures = 0; this.retryAt = 0;
     try {
       if (fs.existsSync(file)) {
         const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -112,6 +114,7 @@ class Renewal {
     if (mode === 'next' && cfg.verifyOnly !== false) throw Error('请先关闭“仅观察空位”，再设置下一次预约的重约计划');
     this.busy = true;
     const generation = ++this.generation;
+    this.readFailures = 0; this.retryAt = 0;
     try {
       let booking = null, officialId = null;
       if (mode === 'current') {
@@ -124,6 +127,7 @@ class Renewal {
         this.validateBookingTime(booking, interval);
       }
       if (generation !== this.generation) throw Error('开启请求已停止');
+      if (cfg.token !== this.deps.config().token) throw Error('登录状态已变化，请重新开启重约');
       this.save({ id: crypto.randomUUID(), active: true, phase: booking ? 'waiting' : 'armed',
         arrivalAt: arrival, date: shanghaiDate(now), intervalMinutes: interval,
         // Snapshot only the time axis. Credentials are never written to this file.
@@ -168,6 +172,7 @@ class Renewal {
     if (!this.job?.active || this.job.phase !== phase) throw Error('计划已停止');
     if (this.now() >= this.job.arrivalAt) throw Error('已到计划到馆时间，停止操作');
     if (this.deps.unavailable()) throw Error('有其他预约操作或待确认结果，请先核实');
+    if (this.cycleToken !== undefined && this.cycleToken !== this.deps.config().token) throw Error('登录状态已变化，请核实当前预约后重新开启重约');
   }
   findRecord(rows) {
     return this.job.officialId ? rows.find(r => String(r.id) === this.job.officialId)
@@ -176,12 +181,14 @@ class Renewal {
   async tick() {
     if (this.busy || this.error || !this.job?.active) return;
     this.busy = true;
+    this.cycleToken = this.deps.config().token;
     try {
       if (this.now() >= this.job.arrivalAt) {
         if (this.job.phase === 'armed') this.deps.stopSearch?.();
         this.set({ active: false, phase: 'finished' }, '已到计划到馆时间，定时重约已停止。请现在到馆签到，并以官网当前预约为准。', 'info');
         return;
       }
+      if (this.now() < this.retryAt) return;
       // A read-only refresh or another operation may temporarily own the booking.
       if (this.deps.unavailable()) return;
       if (this.job.phase === 'waiting' && ['signed', 'away'].includes(this.deps.booking()?.remoteState)) {
@@ -209,6 +216,7 @@ class Renewal {
       if (!waiting(record) || !record.id || !matchesRecord(record, this.job.booking)) throw Error('官网预约不匹配、不可取消或状态已变化，未取消预约');
       this.guard('waiting');
       await this.prepareWindow();
+      this.readFailures = 0; this.retryAt = 0;
       this.guard('waiting');
       this.set({ officialId: String(record.id), phase: 'cancelling' }, '正在取消预约 ' + this.job.booking.seat + '…');
       let response;
@@ -269,7 +277,11 @@ class Renewal {
         this.set({ active: false, phase: 'booking-unknown' }, '重约响应无法确认，请核实官网预约；不会重复提交。', 'error');
       }
     } catch (e) {
-      if (!this.error) this.set({ active: false, phase: 'paused' },
+      if (!this.error && this.job.active && this.job.phase === 'waiting' && retryableRead(e)) {
+        const delay = Math.min(30000, 5000 * 2 ** Math.min(this.readFailures++, 3));
+        this.retryAt = this.now() + delay;
+        this.set({}, '官网查询暂时中断，' + delay / 1000 + ' 秒后自动重试；原预约未取消。' + e.message);
+      } else if (!this.error) this.set({ active: false, phase: 'paused' },
         (this.job?.phase === 'cancelled' || this.job?.phase === 'booking' ? '原预约已取消。' : '') + e.message, 'error');
     } finally { this.busy = false; }
   }
