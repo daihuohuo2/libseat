@@ -11,15 +11,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- Versioned URLs also bypass caches left by older running servers. Keep in sync with sw.js. -->
-<link rel="stylesheet" href="/study-font.css?v=v0.3.2">
-<link rel="stylesheet" href="/warm-study.css?v=v0.3.2">
-<link rel="stylesheet" href="/desktop-study.css?v=v0.3.2">
-<link rel="stylesheet" href="/booking-celebration.css?v=v0.3.2">
-<link rel="stylesheet" href="/renewal.css?v=v0.3.2">
-<link rel="stylesheet" href="/seat-map.css?v=v0.3.2">
-<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.3.2">
-<link rel="stylesheet" href="/compact-ui.css?v=v0.3.2">
-<link rel="stylesheet" href="/seat-watch.css?v=v0.3.2">
+<link rel="stylesheet" href="/study-font.css?v=v0.3.3">
+<link rel="stylesheet" href="/warm-study.css?v=v0.3.3">
+<link rel="stylesheet" href="/desktop-study.css?v=v0.3.3">
+<link rel="stylesheet" href="/booking-celebration.css?v=v0.3.3">
+<link rel="stylesheet" href="/renewal.css?v=v0.3.3">
+<link rel="stylesheet" href="/seat-map.css?v=v0.3.3">
+<link rel="stylesheet" href="/area-seat-prefs.css?v=v0.3.3">
+<link rel="stylesheet" href="/compact-ui.css?v=v0.3.3">
+<link rel="stylesheet" href="/seat-watch.css?v=v0.3.3">
 </head>
 <body>
 <header class="topbar">
@@ -53,7 +53,7 @@
     <section class="map-panel surface" aria-label="实时座位地图">
       <section class="watch-panel" aria-label="盯指定座位">
         <div class="section-heading"><h3>盯指定座位</h3><span id="watchState" class="pill">未开启</span></div>
-        <div class="watch-controls"><span id="watchTarget">未设置目标</span><button id="watchChoose" class="text-button">地图点选</button><button id="watchInput" class="text-button">输入编号</button><button id="watchStart" class="outline" disabled>开始盯座</button><button id="watchStop" class="danger" hidden>停止盯座</button><button id="watchCheck" class="outline" hidden>核实结果</button></div>
+        <div class="watch-controls"><span id="watchTarget">未设置目标</span><button id="watchChoose" class="text-button">地图点选</button><button id="watchInput" class="text-button">输入编号</button><button id="watchStart" class="outline" disabled>开始盯座</button><button id="signedSwap" class="outline" hidden>按抢选名单换座</button><button id="watchStop" class="danger" hidden>停止盯座</button><button id="watchCheck" class="outline" hidden>核实结果</button></div>
         <p id="watchMessage" class="hint" role="status"></p>
         <details id="watchHistory" hidden><summary>盯座记录</summary><div id="watchEvents" class="booking-details hint"></div></details>
       </section>
@@ -127,13 +127,13 @@
   <form method="dialog"><button autofocus>知道了</button></form>
   </div>
 </dialog>
-<script src="/booking-notifications.js?v=v0.3.2"></script>
-<script src="/booking-celebration.js?v=v0.3.2"></script>
-<link rel="stylesheet" href="/booking-management.css?v=v0.3.2">
-<script src="/booking-management-ui.js?v=v0.3.2"></script>
-<script src="/renewal-ui.js?v=v0.3.2"></script>
-<script src="/seat-map.js?v=v0.3.2"></script>
-<script src="/area-seat-prefs.js?v=v0.3.2"></script>
+<script src="/booking-notifications.js?v=v0.3.3"></script>
+<script src="/booking-celebration.js?v=v0.3.3"></script>
+<link rel="stylesheet" href="/booking-management.css?v=v0.3.3">
+<script src="/booking-management-ui.js?v=v0.3.3"></script>
+<script src="/renewal-ui.js?v=v0.3.3"></script>
+<script src="/seat-map.js?v=v0.3.3"></script>
+<script src="/area-seat-prefs.js?v=v0.3.3"></script>
 <script>
 const $ = id => document.getElementById(id);
 let polling = null;
@@ -1133,7 +1133,7 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
   <p id="seatPrefMessage" class="hint" role="status" aria-live="polite"></p>
   <div class="btns"><button type="button" id="seatPrefSave">保存偏好</button></div>
 </dialog>
-<script src="/area-seat-prefs-ui.js?v=v0.3.2"></script>
+<script src="/area-seat-prefs-ui.js?v=v0.3.3"></script>
 <dialog id="watchDialog" aria-labelledby="watchTitle">
   <div class="section-heading"><h2 id="watchTitle">指定一个座位</h2><button id="watchClose" class="text-button">关闭</button></div>
   <p id="watchArea" class="hint"></p>
@@ -1142,8 +1142,8 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
   <p class="warnbox">目标可约后会取消未签到预约，或完全签离已签到座位，再预约目标。释放后仍可能被他人抢先预约，原座位无法保证保留。</p>
   <p id="watchInputError" class="hint" role="alert"></p><button id="watchSave" class="full-width">设为盯座目标</button>
 </dialog>
-<script src="/seat-watch-ui.js?v=v0.3.2"></script>
-<script src="/warm-study.js?v=v0.3.2"></script>
-<script src="/desktop-study.js?v=v0.3.2"></script>
+<script src="/seat-watch-ui.js?v=v0.3.3"></script>
+<script src="/warm-study.js?v=v0.3.3"></script>
+<script src="/desktop-study.js?v=v0.3.3"></script>
 </body>
 </html>

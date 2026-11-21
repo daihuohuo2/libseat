@@ -1,10 +1,10 @@
-# 座位助手 · Android 0.3.2
+# 座位助手 · Android 0.3.3
 
 手机独立运行，无需电脑开机。最低 Android 8.0，建议更新 Android System WebView。
 
-从 [GitHub Releases](https://github.com/daihuohuo2/libseat/releases) 下载 `seat-assistant-0.3.2.apk`，传到手机安装。保留旧版应用直接覆盖安装，可保留手机里的登录状态、偏好与记录。此包使用项目本地体验版密钥签名，未发布应用商店。
+从 [GitHub Releases](https://github.com/daihuohuo2/libseat/releases) 下载 `seat-assistant-0.3.3.apk`，传到手机安装。保留旧版应用直接覆盖安装，可保留手机里的登录状态、偏好与记录。此包使用项目本地体验版密钥签名，未发布应用商店。
 
-0.3.2 修复学校入口预约的同步显示、查询 AbortError 导致任务暂停，增加锁屏定时唤醒与后台权限入口，减少盯座重复查询。
+0.3.3 增加签到后按名单换座，新座被抢后自动尝试订回原座。此前版本已修复学校入口预约的同步显示、查询 AbortError 导致任务暂停，增加锁屏定时唤醒与后台权限入口，减少盯座重复查询。
 
 ## 使用
 
@@ -42,7 +42,7 @@
 node --test tests/*.test.js
 ```
 
-输出为 `android/output/seat-assistant-0.3.2.apk`，使用本地 `android/local-debug.keystore` 签名。保留该密钥以便覆盖安装；源码和发布包不包含密钥、账号或历史数据。
+输出为 `android/output/seat-assistant-0.3.3.apk`，使用本地 `android/local-debug.keystore` 签名。保留该密钥以便覆盖安装；源码和发布包不包含密钥、账号或历史数据。
 
 对专用 Android 模拟器运行原生流程测试（只重置模拟器应用的演示数据）：
 

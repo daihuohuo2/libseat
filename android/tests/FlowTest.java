@@ -201,6 +201,12 @@ public class FlowTest extends Instrumentation {
             until(page,"document.getElementById('watchState').textContent==='已完成' && document.getElementById('bookingSeat').textContent==='XF5A048'");
             check(Boolean.TRUE.equals(js(engine,"watchMutations.length===2 && watchMutations[0].path==='/v4/space/checkout' && watchMutations[1].path==='/v4/space/confirm' && watchMutations[1].body.seat_id==='demo-XF5A048'")),"exactly one checkout followed by the chosen target reservation");
             check(api("/api/status",null).getBoolean("success"),"target booking succeeded");
+            closeDialogs(); click("btnDemoSignIn");
+            until(page,"!document.getElementById('signedSwap').hidden && !document.getElementById('signedSwap').disabled");
+            js(engine,"(()=>{const m=require('./android-demo.js'),respond=m.respond;m.respond=function(p,b){if(p==='/v4/space/confirm' && b.seat_id!=='demo-XF5A048')return {code:409,message:'目标已被占用'};return respond(p,b);};})();true");
+            click("signedSwap");
+            until(page,"document.getElementById('watchMessage').textContent.includes('已重新预约原座')");
+            check(api("/api/status",null).getJSONObject("booking").getString("seat").equals("XF5A048"),"signed swap restores original seat after losing the target");
             result.putString("stream","PASS: Android WebView official-only reservation import, locked/idle renewal alarm and AbortError recovery, map tap selection, running and background booking notifications, grab, cancel, sign/leave/checkout, login/next-day refresh, exact-seat watch, foreground service.\n");
             finish(Activity.RESULT_OK,result);
         } catch(Throwable e) { result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(e)); finish(Activity.RESULT_CANCELED,result); }

@@ -201,7 +201,7 @@ function createWindow() {
 function updateTray(status) {
   if (!tray) return;
   const label = !status ? '连接中断' : status.pendingBooking ? '预约结果待确认'
-    : status.seatWatch?.active ? '盯座中 · ' + status.seatWatch.target?.seat : status.seatWatch?.phase?.includes('unknown') ? '换座结果待核实'
+    : status.seatWatch?.active ? '等待换座 · ' + (status.seatWatch.target?.seat || '抢选名单') : status.seatWatch?.phase?.includes('unknown') ? '换座结果待核实'
     : status.renewal?.active ? '定时重约中' : status.renewal?.phase?.includes('unknown') ? '重约结果待核实'
     : status.running ? '正在抢座' : status.success ? '已成功 · ' + status.booking?.seat : '已停止';
   if (trayState === label) return;

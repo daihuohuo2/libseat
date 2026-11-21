@@ -1,5 +1,5 @@
 'use strict';
-const { validateBookingWindow } = require('./booking-window.js');
+const { validateBookingWindow, schoolClock } = require('./booking-window.js');
 
 const minute = value => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value))
   ? Number(value.slice(0, 2)) * 60 + Number(value.slice(3)) : NaN;
@@ -14,7 +14,7 @@ function selectedAreaIds(cfg) {
 
 // Verified against the official appointment page: type 1 submits a segment ID;
 // type 3 submits start/end. Never guess a protocol when the rules are missing.
-function resolveBookingRule(map, cfg, date, desired, now = new Date()) {
+function resolveBookingRule(map, cfg, date, desired, now = schoolClock()) {
   const type = String(map?.date?.reserveType || '');
   const row = map?.date?.list?.find(row => row.day === date);
   if (String(map?.type) !== '1' || !row) throw Error('官网未提供该区域当天的座位预约规则');
@@ -45,7 +45,7 @@ function resolveBookingRule(map, cfg, date, desired, now = new Date()) {
   return { reserveType: type, segment: '', ...window, axis };
 }
 
-function validateSubmission(cfg, date, rule, now = new Date()) {
+function validateSubmission(cfg, date, rule, now = schoolClock()) {
   const target = new Date(now);
   if (cfg.dateMode === 'tomorrow') target.setDate(target.getDate() + 1);
   if (date !== dayText(target)) return '目标日期已变化，请重新查询座位';
@@ -63,7 +63,7 @@ function orderBody(seatId, date, rule) {
     end_time: rule.reserveType === '1' ? '' : rule.end };
 }
 
-function resolveRenewalRule(map, booking, cfg, desired, now = new Date()) {
+function resolveRenewalRule(map, booking, cfg, desired, now = schoolClock()) {
   if (booking.reserveType === '1') {
     if (String(map?.date?.reserveType) !== '1') throw Error('官网预约规则已变化');
     const row = map.date.list?.find(r => r.day === booking.date);

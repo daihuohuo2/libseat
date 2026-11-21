@@ -17,21 +17,25 @@ exports.respond=async(route,body)=>{
     if(data.scenario==='map-abort')throw Object.assign(Error('aborted'),{name:'AbortError'});
     return {code:0,data:{type:'1',name:'A区',name_merge:'测试馆-五楼-A区',date:{reserveType:'1',list:[{day:body.day,times:[{id:'segment',status:1,start:'08:00',end:'22:00'}]}]}}};
   }
-  if(route==='/v4/Space/seat')return {code:0,data:{list:[['old','XF5A001',live.some(r=>r.seat_id==='old')?'6':'1'],['target','XF5A048',data.available?'1':'6'],['other','XF5A006','1']].map(([id,no,status],i)=>({id,no,status,point_x:10+i*10,point_y:10,width:6,height:8}))}};
+  if(route==='/v4/Space/seat')return {code:0,data:{list:[['old','XF5A001',live.some(r=>r.seat_id==='old')?'6':'1'],['target','XF5A048',data.available?'1':'6'],['other','XF5A006',data.scenario.startsWith('swap-')?'6':'1']].map(([id,no,status],i)=>({id,no,status,point_x:10+i*10,point_y:10,width:6,height:8}))}};
   if(['/v4/space/cancel','/v4/space/checkout'].includes(route)){
     const row=live.find(r=>r.id===body.id);if(!row)throw Error('wrong official record');
     if(route.endsWith('/cancel') && row.status!=='9')return {code:201,message:'不能取消已签到预约'};
     if(route.endsWith('/checkout') && !['3','32'].includes(row.status))return {code:201,message:'未签到不能签离'};
     if(data.scenario==='denied')return {code:201,message:'官网拒绝签离'};
+    if(data.scenario==='swap-after-checkout')data.available=false;
     row.status=route.endsWith('/cancel')?'6':'4';row.oksign=0;save();
     if(data.scenario==='release-timeout')throw Error('timeout after releasing');
     return {code:0};
   }
   if(route==='/v4/space/confirm'){
-    if(body.seat_id!=='target' || body.segment!=='segment' || body.start_time || body.end_time)throw Error('must book only exact target with official segment');
+    const original=data.scenario.startsWith('swap-') && body.seat_id==='old';
+    if(data.scenario==='swap-both-lost')return {code:409,message:'座位已被占用'};
+    if(data.scenario==='swap-conflict' && body.seat_id==='target')return {code:409,message:'目标已被占用'};
+    if(!original && body.seat_id!=='target' || body.segment!=='segment' || body.start_time || body.end_time)throw Error('must book only exact target with official segment');
     if(live.length)return {code:201,message:'尚有预约未释放'};
-    if(!data.available)return {code:409,message:'目标已被占用'};
-    data.rows.unshift({id:'new-record',seat_id:'target',name:'XF5A048',nameMerge:'测试馆-五楼-A区',area_id:'59',status:'9',status_name:'预约成功',oksign:1,
+    if(!original && !data.available)return {code:409,message:'目标已被占用'};
+    data.rows.unshift({id:'new-record',seat_id:body.seat_id,name:original?'XF5A001':'XF5A048',nameMerge:'测试馆-五楼-A区',area_id:'59',status:'9',status_name:'预约成功',oksign:1,
       beginTime:body.day+' 10:00:00',endTime:body.day+' 22:00:00'});save();
     if(data.scenario==='book-timeout')throw Error('timeout after booking');
     return {code:0};

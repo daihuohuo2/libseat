@@ -22,7 +22,7 @@
   function render(s) {
     snapshot = s;
     const w = s.seatWatch || {}, locked = working || w.active || w.busy || unresolved(w) || !!w.error;
-    if (w.target && w.id !== jobId) { jobId = w.id; draft = w.target; redraw(); }
+    if (w.mode !== 'signed-list' && w.target && w.id !== jobId) { jobId = w.id; draft = w.target; redraw(); }
     el('watchTarget').textContent = draft?.seat ? draft.seat + ' · ' + draft.area : '未设置目标';
     el('watchState').textContent = labels[w.phase] || '未开启';
     el('watchChoose').disabled = locked;
@@ -32,6 +32,9 @@
     el('watchStart').disabled = locked || !draft?.seatId || s.running || s.pendingBooking || s.storageError || s.syncingBooking
       || s.renewal?.active || s.renewal?.busy || s.renewal?.error || s.renewal?.phase?.endsWith('unknown')
       || s.bookingManagement?.busy || s.bookingManagement?.checking || s.bookingManagement?.pendingAction;
+    el('signedSwap').hidden = s.bookingManagement?.state !== 'signed' || !s.success || w.active || w.busy;
+    el('signedSwap').disabled = locked || s.running || s.syncingBooking || s.renewal?.active || !!s.pendingBooking;
+    if (w.active && w.mode === 'signed-list') el('watchTarget').textContent = '抢选名单 · 原座 ' + w.source.seat;
     el('watchStop').hidden = !w.active && !w.busy;
     el('watchStop').disabled = working;
     el('watchCheck').hidden = !unresolved(w);
@@ -49,17 +52,17 @@
     if (!w.active && !working) document.querySelectorAll('.task-toast[data-notice-event="started"]').forEach(n => n.remove());
     if (w.notice && (w.notice.event !== 'started' || w.active)) RenewalUI.notice(w.notice);
   }
-  async function action(name) {
+  async function action(name, list = false) {
     if (working) return;
     working = true; error = ''; if (snapshot) render(snapshot);
     try {
       let body = {};
       if (name === 'start') {
-        if (!draft?.seatId) throw Error('请先指定一个座位');
+        if (!list && !draft?.seatId) throw Error('请先指定一个座位');
         if (el('verifyOnly').checked) throw Error('请先关闭“仅观察空位”，盯座会实际预约或换座');
         const saved = await api('/api/config', { verifyOnly:false });
         if (!saved.ok) throw Error(saved.message);
-        body = { areaId:draft.areaId, seatId:draft.seatId, points:await locate() };
+        body = list ? { mode:'signed-list', points:await locate() } : { areaId:draft.areaId, seatId:draft.seatId, points:await locate() };
       }
       const r = await api('/api/watch-' + name, body);
       if (!r.ok) throw Error(r.message || '操作失败');
@@ -106,6 +109,9 @@
   el('watchStart').onclick = () => {
     if (!nativeNotifications && 'Notification' in window && Notification.permission === 'default') enableNotifications();
     action('start');
+  };
+  el('signedSwap').onclick = () => {
+    if (confirm('名单内出现空位后将完全签离原座并预约新座。新座被抢走会尝试订回原座，原座也可能被占用。开始换座？')) action('start', true);
   };
   el('watchStop').onclick = () => action('stop');
   el('watchCheck').onclick = () => action('check');

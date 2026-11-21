@@ -1,4 +1,9 @@
 'use strict';
+// Calendar fields for school requests, even when the device uses another zone.
+function schoolClock() {
+  const china = new Date(Date.now() + 8 * 3600000);
+  return new Date(china.getUTCFullYear(), china.getUTCMonth(), china.getUTCDate(), china.getUTCHours(), china.getUTCMinutes(), china.getUTCSeconds());
+}
 function dateText(date) {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
 }
@@ -7,7 +12,7 @@ function minutes(text) {
   const [h, m] = text.split(':').map(Number);
   return h * 60 + m;
 }
-function validateBookingWindow(cfg, date, window, now = new Date()) {
+function validateBookingWindow(cfg, date, window, now = schoolClock()) {
   if (!['today', 'tomorrow'].includes(cfg.dateMode) || !['now', 'custom'].includes(cfg.timeMode)) return '日期或查询方式无效';
   const target = new Date(now);
   if (cfg.dateMode === 'tomorrow') target.setDate(target.getDate() + 1);
@@ -23,4 +28,4 @@ function validateBookingWindow(cfg, date, window, now = new Date()) {
   if (date === dateText(now) && start < now.getHours() * 60 + now.getMinutes()) return '预约开始时间已经过去';
   return '';
 }
-module.exports = { validateBookingWindow };
+module.exports = { validateBookingWindow, schoolClock };

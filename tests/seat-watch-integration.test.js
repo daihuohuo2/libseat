@@ -40,3 +40,32 @@ test('real desktop UI picks exact occupied seat and switches only when target be
   const timer=setTimeout(()=>child.kill(),25000),[code]=await once(child,'exit');clearTimeout(timer);
   assert.equal(code,0,output);assert.deepEqual(f.calls().map(c=>c.route),['/v4/space/checkout','/v4/space/confirm']);
 });
+
+for (const kind of [null,'9','32']) test('list swap requires a signed source: '+kind, async t => {
+  const f = await fixture(t,{kind});
+  assert.equal((await f.request('/api/watch-start',{mode:'signed-list'})).ok,false);
+  assert.deepEqual(f.calls(),[]);
+});
+for (const scenario of ['swap-success','swap-after-checkout','swap-conflict','swap-both-lost','book-timeout']) test('signed list swap: '+scenario, async t => {
+  const f = await fixture(t,{scenario, available:scenario==='book-timeout'});
+  assert.equal((await f.request('/api/watch-start',{mode:'signed-list'})).ok,true);
+  if (scenario!=='book-timeout') {
+    await f.until(s=>s.seatWatch.message?.includes('名单内暂无'));
+    assert.deepEqual(f.calls(),[]); f.availableNow();
+  }
+  const final=await f.until(s=>!s.seatWatch.active && !s.seatWatch.busy);
+  const writes=f.calls().map(c=>c.route.endsWith('checkout')?'checkout':c.body.seat_id);
+  if (scenario==='book-timeout') {
+    assert.equal(final.seatWatch.phase,'booking-unknown');
+    assert.equal(writes.length,2); return;
+  }
+  if (scenario==='swap-both-lost') {
+    assert.deepEqual(writes,['checkout','target','old']);
+    assert.equal(final.seatWatch.phase,'paused');
+    assert.equal(final.success,false); assert.match(final.seatWatch.message,/原座补约未成功/); return;
+  }
+  const restored=scenario!=='swap-success';
+  assert.deepEqual(writes,scenario==='swap-after-checkout'?['checkout','old']:restored?['checkout','target','old']:['checkout','target']);
+  assert.equal(final.booking.seat,restored?'XF5A001':'XF5A048');
+  assert.equal(final.seatWatch.phase,'finished');
+});

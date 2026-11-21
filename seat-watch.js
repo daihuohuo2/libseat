@@ -17,7 +17,7 @@ class SeatWatch {
     try {
       if (fs.existsSync(file)) {
         const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (data.version !== 1 || data.job && (!data.job.id || !data.job.target?.seatId || !data.job.target?.areaId
+        if (data.version !== 1 || data.job && (!data.job.id || (data.job.mode === 'signed-list' ? !data.job.source?.officialId : !data.job.target?.seatId || !data.job.target?.areaId)
           || !data.job.date || !Array.isArray(data.job.events) || typeof data.job.active !== 'boolean')) throw Error('记录格式无效');
         this.job = data.job;
         if (this.job && (this.job.active || uncertain(this.job.phase) || this.job.phase === 'released')) {
@@ -59,12 +59,23 @@ class SeatWatch {
     this.busy = true;
     const generation = ++this.generation, date = today(this.now());
     try {
-      const result = await this.deps.inspect(input, cfg, date);
+      const list = input.mode === 'signed-list';
+      let source = null, target = null;
+      if (list) {
+        if (cfg.timeMode !== 'now') throw Error('签到后换座请使用实时同步时段');
+        if (!cfg.preferAreas?.length) throw Error('请先将想换去的区域加入抢选名单');
+        const current = await this.deps.current(cfg, date);
+        if (current?.state !== 'signed' || !current.actions.includes('checkout') || !current.booking.officialId || !current.booking.areaId || !current.booking.seatId)
+          throw Error('仅支持已签到、可完全签离且能定位原座的预约');
+        source = current.booking;
+      } else {
+        target = (await this.deps.inspect(input, cfg, date)).target;
+      }
       if (generation !== this.generation || cfg.token !== this.deps.config().token || signature(cfg) !== signature(this.deps.config())) throw Error('任务或登录设置已变化，请重新开启');
-      this.save({ id: crypto.randomUUID(), target: result.target, date, settings: signature(cfg), active: true,
+      this.save({ id: crypto.randomUUID(), mode: list ? 'signed-list' : 'exact', source, areas: list ? [...cfg.preferAreas] : null, preferences: list ? cfg.areaSeatPrefs || {} : null, target, date, settings: signature(cfg), active: true,
         phase: 'watching', events: [], notice: { id: crypto.randomUUID(), event:'started', level:'info', title:'盯座任务正在运行',
-          message:'正在盯 ' + result.target.seat + ' · ' + result.target.area + '。目标空闲后按当前预约状态自动预约或换座。' },
-        message: '正在盯 ' + result.target.seat + '，只预约这个座位。' });
+          message:list ? '正在查找抢选名单内的空位' : '正在盯 ' + target.seat + ' · ' + target.area + '。目标空闲后按当前预约状态自动预约或换座。' },
+        message: list ? '正在等待名单内空位，保留原座 ' + source.seat : '正在盯 ' + target.seat + '，只预约这个座位。' });
       this.sessionToken = cfg.token; this.nextAt = 0; this.readFailures = 0; this.currentCheckedAt = null;
     } finally { this.busy = false; }
   }
@@ -88,7 +99,14 @@ class SeatWatch {
     let released = false, attemptedBooking = null, retryDelay = 0;
     try {
       this.guard(generation, cfg);
-      let candidate = await this.deps.inspect(this.job.target, cfg, this.job.date);
+      const list = this.job.mode === 'signed-list';
+      let candidate = list ? await this.deps.findAlternative(this.job, cfg) : await this.deps.inspect(this.job.target, cfg, this.job.date);
+      this.guard(generation, cfg);
+      if (!candidate) {
+        this.set({}, '名单内暂无可换座位，保留原座 ' + this.job.source.seat); return;
+      }
+      if (list) this.set({ target: candidate.target });
+
       const observedAt = this.now();
       this.guard(generation, cfg);
       if (!candidate.available && this.currentCheckedAt !== null && this.now() - this.currentCheckedAt < 30000) {
@@ -98,6 +116,8 @@ class SeatWatch {
       const current = await this.deps.current(cfg, this.job.date);
       this.currentCheckedAt = this.now();
       this.guard(generation, cfg);
+      if (list && (current?.state !== 'signed' || current.booking.officialId !== this.job.source.officialId || current.booking.seatId !== this.job.source.seatId))
+        throw Error('原预约或签到状态已变化，换座已暂停');
       if (current) this.deps.adopt(current.booking);
       if (current && String(current.booking.seatId) === this.job.target.seatId && String(current.booking.areaId) === this.job.target.areaId) {
         this.set({ active: false, phase: 'finished', notice: null }, '当前已是目标座位，未取消或签离。'); return;
@@ -116,6 +136,7 @@ class SeatWatch {
         this.set({ phase: 'releasing', source: current.booking, releaseAction: action }, action === 'cancel' ? '目标可约，正在取消原预约…' : '目标可约，正在完全签离原座位…');
         try {
           await this.deps.release(current.booking, action, () => {
+            if (list && !this.deps.stillSigned(current.booking)) throw Error('签离前原座或签到状态已变化');
             this.guard(generation, cfg);
             if (this.now() - inspectedAt > 30000) throw Error('座位查询已过时，未释放原座位，请重新开启盯座');
             this.deps.validate(candidate, cfg, this.job.date);
@@ -135,36 +156,11 @@ class SeatWatch {
       if (released || this.now() - observedAt > 2000) candidate = await this.deps.inspect(this.job.target, cfg, this.job.date);
       this.guard(generation, cfg);
       if (!candidate.available) {
+        if (released && list) { await this.restoreOriginal(cfg, generation); return; }
         this.set({ phase: 'watching' }, (released ? '原座位已释放；' : '') + '目标刚被占用，继续只盯这个座位。', released); return;
       }
-      const rule = candidate.rule;
-      attemptedBooking = { id: crypto.randomUUID(), ...this.job.target, date: this.job.date,
-        startTime: rule.start, endTime: rule.end, reserveType: rule.reserveType, segment: rule.segment,
-        bookedAt: new Date(this.now()).toISOString() };
-      const booking = attemptedBooking;
-      this.set({ phase: 'booking', attempt: booking }, '正在预约 ' + booking.seat + '…');
-      let response;
-      try {
-        response = await this.deps.reserve(booking, candidate, cfg, () => {
-          this.guard(generation, cfg);
-          this.deps.validate(candidate, cfg, this.job.date);
-        });
-      } catch (e) {
-        if (e.beforeSubmission) throw e;
-        this.set({ active: false, phase: 'booking-unknown' }, '目标预约结果待核实，已暂停，未重复预约。请点击“核实结果”。', true); return;
-      }
-      if (!response || !Number.isInteger(response.code) || response.code < 0) {
-        this.set({ active: false, phase: 'booking-unknown' }, '目标预约响应无法确认，已暂停，请核实结果。', true); return;
-      }
-      if (response.code === 0) {
-        this.deps.booked(booking);
-        this.set({ active: false, phase: 'finished', notice: null }, '已预约指定座位 ' + booking.seat + '。请按官网要求重新签到。');
-      } else {
-        this.deps.rejected(booking);
-        const retry = response.code === 409 && this.job.active && generation === this.generation;
-        this.set({ active: retry, phase: retry ? 'watching' : 'paused' }, (released ? '原座位已释放；' : '')
-          + '目标预约未成功：' + (response.message || '官网拒绝') + (retry ? '。继续只盯目标座位。' : '。请核实后重新开启。'), true);
-      }
+      attemptedBooking = true;
+      await this.bookCandidate(candidate, cfg, generation, released, false);
     } catch (e) {
       // Unknown reservation writes are represented by BookingStore even if a later journal write fails.
       const phase = this.deps.pending().booking && attemptedBooking ? 'booking-unknown' : 'paused';
@@ -176,6 +172,46 @@ class SeatWatch {
       if (!retryDelay) this.readFailures = 0;
       this.nextAt = this.now() + (retryDelay || Math.max(1, Math.min(120, Number(cfg.interval) || 6)) * 1000);
       this.busy = false;
+    }
+  }
+  async restoreOriginal(cfg, generation) {
+    this.guard(generation, cfg);
+    this.set({ phase: 'released' }, '新座已被抢走，正在尝试重新预约原座…');
+    const candidate = await this.deps.inspect(this.job.source, cfg, this.job.date, { fresh: true });
+    this.guard(generation, cfg);
+    if (!candidate.available) throw Error('原座也已不可约，未能恢复座位，请查看官网');
+    await this.bookCandidate(candidate, cfg, generation, true, true);
+  }
+  async bookCandidate(candidate, cfg, generation, released, restoring) {
+    const rule = candidate.rule;
+    const booking = { id: crypto.randomUUID(), ...candidate.target, date: this.job.date,
+      startTime: rule.start, endTime: rule.end, reserveType: rule.reserveType, segment: rule.segment,
+      bookedAt: new Date(this.now()).toISOString() };
+    this.set({ phase: 'booking', attempt: booking }, '正在预约 ' + booking.seat + '…');
+    let response;
+    try {
+      response = await this.deps.reserve(booking, candidate, cfg, () => {
+        this.guard(generation, cfg);
+        this.deps.validate(candidate, cfg, this.job.date);
+      });
+    } catch (e) {
+      if (e.beforeSubmission) throw e;
+      this.set({ active: false, phase: 'booking-unknown' }, '目标预约结果待核实，已暂停，未重复预约。请点击“核实结果”。', true); return;
+    }
+    if (!response || !Number.isInteger(response.code) || response.code < 0) {
+      this.set({ active: false, phase: 'booking-unknown' }, '目标预约响应无法确认，已暂停，请核实结果。', true); return;
+    }
+    if (response.code === 0) {
+      this.deps.booked(booking);
+      this.set({ active: false, phase: 'finished', notice: null }, (restoring ? '已重新预约原座 ' : '已预约指定座位 ') + booking.seat + '。请按官网要求重新签到。');
+    } else {
+      this.deps.rejected(booking);
+      if (this.job.mode === 'signed-list' && !restoring && (response.code === 409 || /已被.{0,8}(占|约|抢)|座位.{0,6}(已占用|已预约)/.test(response.message || response.msg || ''))) {
+        await this.restoreOriginal(cfg, generation); return;
+      }
+      const retry = !restoring && response.code === 409 && this.job.active && generation === this.generation;
+      this.set({ active: retry, phase: retry ? 'watching' : 'paused' }, (released ? '原座位已释放；' : '')
+        + (restoring ? '原座补约未成功：' : '目标预约未成功：') + (response.message || '官网拒绝') + (retry ? '。继续只盯目标座位。' : '。请核实后重新开启。'), true);
     }
   }
   async check() {

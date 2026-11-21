@@ -18,7 +18,7 @@ const browserLogin = require('./browser-login.js');
 const seatPrefs = require('./seat-prefs.js');
 const areaSeatPrefs = require('./public/area-seat-prefs.js');
 const { BookingStore, bookingEnded } = require('./booking-store.js');
-const { validateBookingWindow } = require('./booking-window.js');
+const { validateBookingWindow, schoolClock } = require('./booking-window.js');
 const { selectedAreaIds, resolveBookingRule, resolveRenewalRule, validateSubmission, orderBody } = require('./booking-protocol.js');
 const { currentRecordsSource, recordsEndpoint, matchesRecord } = require('./reservation-records.js');
 const { Renewal } = require('./renewal.js');
@@ -41,7 +41,7 @@ const bookingStore = new BookingStore(process.env.LIBSEAT_BOOKINGS_FILE || path.
  *    算法 = AES-128-CBC / Pkcs7，输出 Base64
  * ============================================================ */
 function aesKey(date) {
-  const d = date || new Date();
+  const d = date || schoolClock();
   const s = '' + d.getFullYear()
     + String(d.getMonth() + 1).padStart(2, '0')
     + String(d.getDate()).padStart(2, '0');
@@ -356,8 +356,8 @@ function submitOrder(cfg, seatId, date, window, booking) {
     if (!reason) reason = validateSubmission(live, date, w);
     if (reason) { const e = new Error(reason); e.beforeSubmission = true; throw e; }
     // A current-day segment starts when submitted; record the actual minute.
-    if (w.reserveType === '1' && date === fmtDate(new Date())) {
-      const now = new Date();
+    if (w.reserveType === '1' && date === fmtDate(schoolClock())) {
+      const now = schoolClock();
       const start = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
       booking.startTime = start > w.start ? start : w.start;
     }
@@ -383,7 +383,7 @@ function fmtDate(d) {
 }
 
 function targetDate(cfg) {
-  const d = new Date();
+  const d = schoolClock();
   if (cfg.dateMode === 'tomorrow') d.setDate(d.getDate() + 1);
   return fmtDate(d);
 }
@@ -417,7 +417,7 @@ function effectiveWindow(cfg, purpose) {
   const step = Math.max(1, Number(cfg.axisStep) || 15);
   const maxMin = Math.max(30, Number(cfg.axisMaxMin) || 240);
 
-  const now = new Date();
+  const now = schoolClock();
   const mins = now.getHours() * 60 + now.getMinutes();
 
   let start;
@@ -458,9 +458,8 @@ function windowPassed(cfg) {
   const parts = String(cfg.endTime || '00:00').split(':');
   const h = Number(parts[0]), m = Number(parts[1]);
   if (isNaN(h)) return false;
-  const end = new Date();
-  end.setHours(h, isNaN(m) ? 0 : m, 0, 0);
-  return Date.now() >= end.getTime();
+  const now = schoolClock();
+  return now.getHours() * 60 + now.getMinutes() >= h * 60 + (m || 0);
 }
 
 /**
@@ -739,7 +738,7 @@ async function currentWatchBooking(cfg, date, displayOnly = false) {
   if (date && begin.slice(0, 10) !== date || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(begin) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(end)) throw Error('已有其他日期或时间不明的预约，未自动释放');
   const seatId = String(row.seat_id || row.space || row.space_id || subscription?.space_id || known?.seatId || '');
   const areaId = String(row.area_id || subscription?.area_id || known?.areaId
-    || (seatId === seatWatch?.job?.target.seatId ? seatWatch.job.target.areaId : ''));
+    || (seatId === seatWatch?.job?.target?.seatId ? seatWatch.job.target.areaId : ''));
   if (!row.id || !seatId) throw Error('官网未提供完整的预约编号和座位信息');
   const booking = { ...known, id: known?.id || 'official-' + String(row.id), officialId: String(row.id),
     seatId, areaId, seat: String(row.name || row.no || row.spaceName || known?.seat || seatId),
@@ -791,10 +790,33 @@ async function syncOfficialBooking() {
   })();
   return bookingSyncPromise;
 }
+async function findAlternative(job, cfg) {
+  let lastError;
+  for (const area of job.areas) {
+    const areaId = String(area);
+    try {
+      const map = await fetchBookingMap(cfg, areaId, job.date);
+      if (map?.code !== 0) throw queryError(map, '读取区域规则失败');
+      const rule = resolveBookingRule(map.data, cfg, job.date, effectiveWindow(cfg, 'book'));
+      const response = await fetchSeats(cfg, areaId, job.date, 'high', rule);
+      if (response?.code !== 0 || !Array.isArray(response.data?.list)) throw queryError(response, '读取区域座位失败');
+      const free = response.data.list.filter(s => s.id && String(s.status) === '1' && String(s.id) !== job.source.seatId);
+      const seat = orderCandidates({ ...cfg, areaSeatPrefs: job.preferences }, free, areaId)[0]?.seat;
+      if (seat) return { available: true, rule, target: { areaId, seatId: String(seat.id), seat: String(seat.no), area: map.data.name_merge || areaId } };
+    } catch (e) {
+      if (Number(e.code) === 10001) throw e;
+      lastError = e;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
 seatWatch = new SeatWatch(process.env.LIBSEAT_WATCH_FILE || path.join(path.dirname(CONFIG_FILE), 'seat-watch.json'), {
   config: loadConfig,
   unavailable: () => state.running || !!state.pendingBooking || state.checkingBooking || state.syncingBooking || !!state.storageError
     || renewal.blocksBooking() || management.blocked(),
+  findAlternative,
+  stillSigned: b => state.booking?.officialId === b.officialId && state.booking?.remoteState === 'signed',
   inspect: inspectWatchTarget, current: currentWatchBooking, adopt: adoptWatchBooking,
   pending: () => ({ booking: state.pendingBooking, action: bookingStore.data.pendingAction }),
   resolved: id => bookingStore.data.history.find(b => b.id === id),
@@ -809,7 +831,7 @@ seatWatch = new SeatWatch(process.env.LIBSEAT_WATCH_FILE || path.join(path.dirna
       try {
         beforeSend();
         if (booking.reserveType === '1') {
-          const now = new Date();
+          const now = schoolClock();
           const start = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
           if (start > booking.startTime) booking.startTime = start;
         }
